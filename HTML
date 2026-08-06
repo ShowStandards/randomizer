@@ -1,0 +1,38 @@
+<div class="ss-randomizer">
+  <h1>Show Randomizer</h1>
+  <div class="version-note">GitHub Modular Randomizer v7.0 • Species + Association + Activity Championships</div>
+
+  <div class="ss-setup-card">
+    <h2>1. Show Setup</h2>
+    <div class="ss-setup-grid">
+      <div class="ss-field"><label for="showSpecies">Show Species</label><select id="showSpecies"><option value="dog">Dog</option><option value="cat">Cat</option><option value="horse">Horse</option></select></div>
+      <div class="ss-field"><label for="showSystem">Show System</label><select id="showSystem"><option value="standard">Standard Show</option><option value="association">Association Title Show</option></select><small>Association shows still award normal Show Standard points and titles.</small></div>
+      <div class="ss-field"><label for="showName">Show Name</label><input type="text" id="showName" placeholder="Spring Championship 2026"></div>
+      <div class="ss-field"><label for="bannerUrl">Banner Image URL</label><input type="text" id="bannerUrl" placeholder="https://example.com/banner.png"></div>
+    </div>
+  </div>
+
+  <div class="ss-setup-card">
+    <h2>2. Event Setup</h2>
+    <div class="ss-setup-grid">
+      <div class="ss-field"><label for="eventCategory">Event Category</label><select id="eventCategory"><option value="conformation">Conformation</option><option value="activity">Activities</option><option value="herding">Herding Club</option></select></div>
+      <div class="ss-field"><label for="showFormat">Show Format</label><select id="showFormat"></select></div>
+      <div class="ss-field"><label for="championshipMode">Championship Mode</label><select id="championshipMode"><option value="regular">Regular Show</option><option value="championship">Championship Show</option></select></div>
+      <div id="activityPanel" class="hidden"><div class="ss-field"><label for="activitySelect">Activity</label><select id="activitySelect"><option value="">Loading activities...</option></select></div><div class="ss-field"><label for="activityScoring">Result Method</label><select id="activityScoring"><option value="placement">Placements</option><option value="scored">Scored</option></select></div></div>
+    </div>
+    <input type="hidden" id="showType" value="conformation">
+  </div>
+
+  <div id="associationPanel" class="hidden"><h2>Association Tracking</h2><div class="ss-field"><label for="associationKey">Association</label><input id="associationKey" placeholder="hunter_jumper_association"><small>These results also upload to standard points and titles.</small></div></div>
+
+  <div id="normalSeriesFields"><div class="ss-field"><label for="seriesName">Series Name</label><input type="text" id="seriesName" placeholder="Optional — e.g. TradeMark Summer Series"><small>Shows with the same series name can feed a Championship Show.</small></div><div class="ss-field"><label for="seriesRound">Series Round</label><input type="number" id="seriesRound" min="1" placeholder="Optional — e.g. 1"></div></div>
+
+  <div id="championshipPanel" class="hidden"><h2>Championship Qualifiers</h2><div class="ss-field"><label for="championshipSeries">Source Series</label><select id="championshipSeries"><option value="">Select a series or saved shows</option></select></div><div class="ss-field"><label for="championshipQualification">Qualification Rule</label><select id="championshipQualification"></select></div><div class="ss-field"><label>Source Shows</label><div id="championshipShowList" class="ss-source-shows"><small>Select a series to load its shows.</small></div></div><button id="championshipPreviewButton" class="ss-button secondary full" type="button">🔎 Preview Qualifiers</button><div id="championshipPreview" class="hidden"></div></div>
+
+  <div id="herdingPanel" class="hidden"><h2>Herding Club</h2><div class="ss-field"><label for="herdingEventType">Herding Event</label><select id="herdingEventType"><option value="instinct">Instinct Testing</option><option value="stakes">Stakes Trial</option></select></div><small>Stakes retain division, stock, scores, standard Herding points, and qualification-title progress.</small></div>
+
+  <div class="ss-field hidden" id="maxScoreField"><label for="maxScore">Max Score for Scored Activities</label><input type="number" id="maxScore" value="100" min="1"></div>
+  <div class="ss-field" id="entriesField"><label for="rawData">Entries</label><textarea id="rawData" placeholder="Paste entries here."></textarea><small>Activities accept bracketed or clean headings. Species prefixes are optional when the activity is selected.</small></div>
+  <button id="ssRunButton" class="ss-button full" type="button">🎲 Randomize Show</button><button id="sortButton" class="ss-button secondary full" type="button">🔤 Sort Entries Only</button><button id="ssClearButton" class="ss-button secondary full" type="button">Clear</button>
+  <div id="ssMessages" class="hidden"></div><div id="resultsContainer" class="hidden"></div>
+</div>
