@@ -496,7 +496,7 @@ async function populateActivitySelector() {
     .sort((a,b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
 
   select.innerHTML =
-    '<option value="__MIXED__">Multiple activities / use pasted activity headings</option>' +
+    '<option value="__MIXED__">All Activities</option>' +
     options.map(row =>
       '<option value="' + escapeHtml(row.activity_key) + '">' +
       escapeHtml(row.display_name) +
@@ -1458,6 +1458,70 @@ async function switchRandomizerTab(tabName) {
 // =============================================================
 // PHASE 1 — GUIDED STANDARD SHOW SETUP
 // =============================================================
+
+const SS_SPECIALTY_SYSTEMS = [
+  {
+    key: 'herding_club',
+    display_name: 'Herding Club',
+    species: 'dog',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'hunting_club',
+    display_name: 'Hunting Club',
+    species: 'dog',
+    active: false,
+    title_system: true
+  },
+  {
+    key: 'spaniel_club',
+    display_name: 'Spaniel Club',
+    species: 'dog',
+    active: false,
+    title_system: true
+  },
+  {
+    key: 'icelandic_horse_club',
+    display_name: 'Icelandic Horse Club',
+    species: 'horse',
+    active: false,
+    title_system: true
+  },
+  {
+    key: 'endurance_club',
+    display_name: 'Endurance Club',
+    species: 'horse',
+    active: false,
+    title_system: true
+  }
+];
+
+function specialtySystemsForSpecies(species) {
+  const selected = cleanLine(species).toLowerCase();
+  return SS_SPECIALTY_SYSTEMS.filter(system => system.species === selected);
+}
+
+function renderSpecialtySystemOptions() {
+  if (activeRandomizerTab !== 'specialty' || !$('showFormat')) return;
+
+  const species = $('showSpecies') ? $('showSpecies').value : 'dog';
+  const systems = specialtySystemsForSpecies(species);
+
+  $('showFormat').innerHTML = systems.map(system =>
+    '<option value="' + escapeHtml(system.key) + '"' +
+    (system.active ? '' : ' disabled') +
+    '>' +
+    escapeHtml(system.display_name) +
+    (system.active ? '' : ' — Coming Next') +
+    '</option>'
+  ).join('');
+
+  if (!$('showFormat').value && $('showFormat').options.length) {
+    $('showFormat').selectedIndex = 0;
+  }
+}
+
 const SS_PHASE1_FORMATS = {
   conformation: [
     ['conformation', 'All Breed Shows'],
@@ -1495,7 +1559,11 @@ function currentShowKind() {
 function resolveLegacyShowType() {
   const category = selectedEventCategory();
 
-  if (category === 'herding') return 'herding-club';
+  if (activeRandomizerTab === 'specialty') {
+    const system = $('showFormat') ? $('showFormat').value : 'herding_club';
+    if (system === 'herding_club') return 'herding-club';
+    return 'specialty-' + system.replace(/_/g, '-');
+  }
 
   if (category === 'conformation') {
     if (selectedChampionshipMode() === 'championship') return 'championship';
@@ -1516,10 +1584,15 @@ function resolveLegacyShowType() {
 }
 
 function renderShowFormatOptions() {
-  const category = selectedEventCategory();
   const select = $('showFormat');
   if (!select) return;
 
+  if (activeRandomizerTab === 'specialty') {
+    renderSpecialtySystemOptions();
+    return;
+  }
+
+  const category = selectedEventCategory();
   const previous = select.value;
   const formats = SS_PHASE1_FORMATS[category] || [];
 
@@ -1534,7 +1607,6 @@ function renderShowFormatOptions() {
     ? previous
     : (formats[0] ? formats[0][0] : '');
 
-  // Jcink/browser repaint safeguard.
   if (select.selectedIndex < 0 && select.options.length) {
     select.selectedIndex = 0;
   }
@@ -1570,9 +1642,17 @@ function setChampionshipQualificationOptions() {
 
 function updatePhase1UI() {
   const category = selectedEventCategory();
-  const isActivity = category === 'activities';
-  const isHerding = category === 'herding';
-  const isChampionship = selectedChampionshipMode() === 'championship' && !isHerding;
+  const isActivity = activeRandomizerTab === 'activities';
+  const selectedSpecialtySystem =
+    activeRandomizerTab === 'specialty' && $('showFormat')
+      ? $('showFormat').value
+      : null;
+  const isHerding =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'herding_club';
+  const isChampionship =
+    selectedChampionshipMode() === 'championship' &&
+    activeRandomizerTab !== 'specialty';
 
   renderShowFormatOptions();
 
@@ -2032,6 +2112,10 @@ function selectedActivityKeyForChampionship() {
   return select.value && select.value !== '__MIXED__' ? select.value : null;
 }
 
+function championshipIncludesAllActivities() {
+  return !$('activityKey') || $('activityKey').value === '__MIXED__';
+}
+
 function activityClassWithoutActivityPrefix(className, activityName) {
   let value = cleanLine(className);
   const prefix = cleanLine(activityName);
@@ -2054,42 +2138,90 @@ function recordBelongsToSelectedActivity(record, activityKey) {
   return cls === name || cls.startsWith(name + ' - ');
 }
 
-function buildActivityChampionshipRawData(qualifyingRecords, animalsById, activityKey) {
-  const activityName = activityKey
-    ? displayActivityNameForKey(activityKey)
-    : 'Championship Activity';
+function activityInfoFromRecord(record, selectedActivityKey) {
+  const explicitKey = record.activity_key || selectedActivityKey || null;
 
-  const byClass = new Map();
-  const usedAnimals = new Set();
+  if (explicitKey) {
+    return {
+      key: explicitKey,
+      name: displayActivityNameForKey(explicitKey)
+    };
+  }
+
+  const classText = cleanLine(record.class);
+  const known = activityTypesCache
+    .slice()
+    .sort((a, b) =>
+      String(b.display_name || '').length - String(a.display_name || '').length
+    )
+    .find(row => {
+      const display = cleanLine(row.display_name).toLowerCase();
+      const cls = classText.toLowerCase();
+      return cls === display || cls.startsWith(display + ' - ');
+    });
+
+  return known
+    ? { key: known.activity_key, name: known.display_name }
+    : { key: null, name: classText.split(' - ')[0] || 'Activity' };
+}
+
+function buildActivityChampionshipRawData(qualifyingRecords, animalsById, activityKey) {
+  const byActivity = new Map();
+  const usedActivityAnimal = new Set();
 
   qualifyingRecords.forEach(record => {
     const animalId = String(record.animal_id || '');
-    if (!animalId || usedAnimals.has(animalId)) return;
+    if (!animalId) return;
 
     const animal = animalsById.get(animalId);
     if (!animal) return;
 
-    const className = activityClassWithoutActivityPrefix(record.class, activityName);
-    if (!byClass.has(className)) byClass.set(className, []);
+    const activityInfo = activityInfoFromRecord(record, activityKey);
+    const activityName = cleanLine(activityInfo.name || 'Activity');
+    const uniqueKey = (activityInfo.key || activityName.toLowerCase()) + '::' + animalId;
 
-    const entry = cleanLine(animal.name || animal.normalized_name || 'Unknown Animal') +
-      ' - ' + cleanLine(animal.owner || 'Unknown Owner');
+    // One qualifying appearance per animal PER activity.
+    if (usedActivityAnimal.has(uniqueKey)) return;
 
-    byClass.get(className).push(entry);
-    usedAnimals.add(animalId);
+    const className = activityClassWithoutActivityPrefix(
+      record.class,
+      activityName
+    );
+
+    if (!byActivity.has(activityName)) {
+      byActivity.set(activityName, new Map());
+    }
+
+    const classMap = byActivity.get(activityName);
+    if (!classMap.has(className)) classMap.set(className, []);
+
+    const entry =
+      cleanLine(animal.name || animal.normalized_name || 'Unknown Animal') +
+      ' - ' +
+      cleanLine(animal.owner || 'Unknown Owner');
+
+    classMap.get(className).push(entry);
+    usedActivityAnimal.add(uniqueKey);
   });
 
   const lines = [];
-  for (const [className, entries] of [...byClass.entries()].sort((a,b) => a[0].localeCompare(b[0]))) {
-    lines.push(activityName + ' - ' + className);
-    entries.sort((a,b) => a.localeCompare(b)).forEach(entry => lines.push(entry));
-    lines.push('');
+  let classCount = 0;
+
+  for (const [activityName, classMap] of [...byActivity.entries()].sort((a,b) => a[0].localeCompare(b[0]))) {
+    for (const [className, entries] of [...classMap.entries()].sort((a,b) => a[0].localeCompare(b[0]))) {
+      lines.push(activityName + ' - ' + className);
+      entries.sort((a,b) => a.localeCompare(b)).forEach(entry => lines.push(entry));
+      lines.push('');
+      classCount += 1;
+    }
   }
 
   return {
     rawData: lines.join('\n').trim(),
-    qualifiedCount: usedAnimals.size,
-    classCount: byClass.size
+    qualifiedCount: usedActivityAnimal.size,
+    classCount,
+    activityCount: byActivity.size,
+    activityNames: [...byActivity.keys()].sort((a,b) => a.localeCompare(b))
   };
 }
 
@@ -2104,16 +2236,13 @@ async function buildActivityChampionshipQualifiers(showData, previewOnly) {
 
   if (!seriesName) throw new Error('Please select a championship source series or saved shows.');
   if (!showIds.length) throw new Error('Please select at least one source show.');
-  if (!activityKey) {
-    throw new Error('Activity Championships require one activity to be selected rather than “Multiple activities”.');
-  }
 
   const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
   const records = await loadRecordsForShowIds(supabase, showIds, 'activity');
 
   const qualifyingRecords = records.filter(record =>
     record.animal_id &&
-    recordBelongsToSelectedActivity(record, activityKey) &&
+    (championshipIncludesAllActivities() || recordBelongsToSelectedActivity(record, activityKey)) &&
     activityChampionshipRecordAllowed(record, rule)
   );
 
@@ -2130,7 +2259,9 @@ async function buildActivityChampionshipQualifiers(showData, previewOnly) {
     qualifiedCount: built.qualifiedCount,
     unresolvedCount: Math.max(0, animalIds.length - built.qualifiedCount),
     classCount: built.classCount,
-    activityName: displayActivityNameForKey(activityKey),
+    activityCount: built.activityCount,
+    activityNames: built.activityNames,
+    activityName: activityKey ? displayActivityNameForKey(activityKey) : 'All Activities',
     rawData: built.rawData
   };
 
@@ -2187,9 +2318,10 @@ async function previewChampionship() {
     if (selectedEventCategory() === 'activities') {
       el.innerHTML =
         '<strong>' + escapeHtml(preview.seriesName) + '</strong><br>' +
-        'Activity: ' + escapeHtml(preview.activityName || '') + '<br>' +
+        'Activity selection: ' + escapeHtml(preview.activityName || '') + '<br>' +
+        (preview.activityCount ? 'Activities included: ' + Number(preview.activityCount) + '<br>' : '') +
         'Source shows selected: ' + preview.selectedShows.length + '<br>' +
-        'Unique qualifiers found: ' + preview.qualifiedCount +
+        'Qualifying activity entries found: ' + preview.qualifiedCount +
         '<br>Championship classes rebuilt: ' + Number(preview.classCount || 0) +
         (preview.unresolvedCount ? '<br>Could not rebuild: ' + preview.unresolvedCount : '');
     } else {
@@ -2229,6 +2361,10 @@ function initializeRandomizerUI() {
     if (el) el.addEventListener('change', async () => {
       if (id === 'showSpecies' && activeRandomizerTab === 'activities') {
         await populateActivitySelector();
+      }
+
+      if (id === 'showSpecies' && activeRandomizerTab === 'specialty') {
+        renderShowFormatOptions();
       }
 
       updatePhase1UI();
@@ -2924,6 +3060,21 @@ async function randomizeShow() {
   if (!showData.species) {
     showMessage('error', 'Please select the show species.');
     return;
+  }
+
+  if (activeRandomizerTab === 'specialty') {
+    const systemKey = $('showFormat') ? $('showFormat').value : '';
+    const system = SS_SPECIALTY_SYSTEMS.find(item => item.key === systemKey);
+
+    if (!system) {
+      showMessage('error', 'Please select a specialty system.');
+      return;
+    }
+
+    if (!system.active) {
+      showMessage('error', escapeHtml(system.display_name) + ' is reserved for the association-title build and is not active yet.');
+      return;
+    }
   }
 
   if (!isChampionship && !rawData.trim()) {
