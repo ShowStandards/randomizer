@@ -5,40 +5,33 @@
     <div class="version-note">Development • Phase 1 — Standard Shows</div>
   </div>
 
-  <div class="ss-setup-progress" aria-label="Randomizer progress">
-    <div class="ss-step active">
-      <span class="ss-step-number">1</span>
-      <span class="ss-step-label">Setup</span>
-    </div>
-    <div class="ss-step">
-      <span class="ss-step-number">2</span>
-      <span class="ss-step-label">Entries</span>
-    </div>
-    <div class="ss-step">
-      <span class="ss-step-number">3</span>
-      <span class="ss-step-label">Results</span>
-    </div>
+  <div class="ss-engine-tabs" role="tablist" aria-label="Randomizer types">
+    <button class="ss-engine-tab active" type="button" data-engine-tab="conformation" aria-selected="true">
+      <span>Conformation</span>
+      <small>Standard conformation system</small>
+    </button>
+
+    <button class="ss-engine-tab" type="button" data-engine-tab="activities" aria-selected="false">
+      <span>Standard Activities</span>
+      <small>Standard activity points &amp; titles</small>
+    </button>
+
+    <button class="ss-engine-tab" type="button" data-engine-tab="specialty" aria-selected="false">
+      <span>Specialty / Associations</span>
+      <small>Independent club &amp; registry systems</small>
+    </button>
   </div>
 
   <section class="ss-setup-card">
     <div class="ss-card-title">
       <div>
-        <div class="ss-kicker">Show Setup</div>
-        <h2>Build Your Show</h2>
+        <div class="ss-kicker" id="engineKicker">Conformation</div>
+        <h2 id="engineHeading">Build Your Conformation Show</h2>
       </div>
       <div id="setupSummary" class="ss-summary-pill">Dog • Conformation • All Breed Shows • Regular</div>
     </div>
 
     <div class="ss-grid two">
-      <div class="ss-field">
-        <label for="randomizerType">Randomizer Type</label>
-        <select id="randomizerType">
-          <option value="standard">Standard Show</option>
-          <option value="association">Association Title Show — Coming Next</option>
-        </select>
-        <small>Association shows will still earn standard points and titles, plus association title credit.</small>
-      </div>
-
       <div class="ss-field">
         <label for="showSpecies">Show Species</label>
         <select id="showSpecies">
@@ -47,24 +40,22 @@
           <option value="horse">Horse</option>
         </select>
       </div>
-    </div>
-
-    <div class="ss-grid two">
-      <div class="ss-field">
-        <label for="eventCategory">Event Category</label>
-        <select id="eventCategory">
-          <option value="conformation">Conformation</option>
-          <option value="activities">Activities</option>
-          <option value="herding">Herding Club</option>
-        </select>
-      </div>
 
       <div class="ss-field">
-        <label for="showFormat">Show Format</label>
+        <label id="showFormatLabel" for="showFormat">Show Format</label>
         <select id="showFormat">
           <option value="conformation">All Breed Shows</option>
         </select>
+        <small id="showFormatHelp"></small>
       </div>
+    </div>
+
+    <div class="hidden">
+      <select id="eventCategory" aria-hidden="true">
+        <option value="conformation">Conformation</option>
+        <option value="activities">Activities</option>
+        <option value="herding">Herding Club</option>
+      </select>
     </div>
 
     <div class="ss-grid one">
@@ -77,9 +68,9 @@
       </div>
     </div>
 
-    <div id="associationComingSoon" class="hidden">
-      <strong>Association Title Shows are the next build phase.</strong>
-      <span>This option is already reserved in the new workflow so we can add association-specific classes and title tracking without redesigning the page again.</span>
+    <div id="specialtySystemNote" class="hidden">
+      <strong>Specialty / Association engine</strong>
+      <span>Herding Club is active now. Hunter Jumper, Eventing, Endurance, Gaiting, and future registry systems will be added here as separate rule engines.</span>
     </div>
 
     <div id="activityOptionsPanel" class="hidden">
