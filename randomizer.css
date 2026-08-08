@@ -562,3 +562,116 @@ body.ss-dark-mode .ss-association-notice span {
     text-align: left;
   }
 }
+
+
+/* ============================================================
+   PHASE 1.2 — RULE ENGINE TABS
+============================================================ */
+.ss-engine-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0,1fr));
+  gap: 9px;
+  margin: 18px 0 22px;
+  padding: 7px;
+  border: 1px solid rgba(70,137,134,.18);
+  border-radius: 14px;
+  background: rgba(70,137,134,.035);
+}
+
+.ss-engine-tab {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: #687575;
+  text-align: left;
+  cursor: pointer;
+  font-family: 'Quicksand',Arial,sans-serif;
+  transition: .18s ease;
+}
+
+.ss-engine-tab span {
+  display: block;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.ss-engine-tab small {
+  display: block;
+  margin-top: 3px;
+  color: inherit;
+  opacity: .75;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.ss-engine-tab:hover {
+  background: rgba(70,137,134,.07);
+  color: #2f6f6f;
+}
+
+.ss-engine-tab.active {
+  border-color: rgba(70,137,134,.28);
+  background: #fff;
+  color: #2f6f6f;
+  box-shadow: 0 3px 10px rgba(0,0,0,.05);
+}
+
+.ss-specialty-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  margin-top: 5px;
+  border: 1px dashed rgba(70,137,134,.35);
+  border-radius: 10px;
+  background: rgba(70,137,134,.055);
+  color: #2f6f6f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ss-specialty-note span {
+  color: #687575;
+}
+
+body.ss-dark-mode .ss-engine-tabs {
+  background: rgba(125,180,174,.06);
+  border-color: #3b4d4d;
+}
+
+body.ss-dark-mode .ss-engine-tab {
+  color: #b9c9c7;
+}
+
+body.ss-dark-mode .ss-engine-tab.active {
+  background: #2a3131;
+  border-color: #468986;
+  color: #d9e5e4;
+  box-shadow: none;
+}
+
+body.ss-dark-mode .ss-specialty-note {
+  background: rgba(70,137,134,.13);
+  border-color: #468986;
+  color: #d9e5e4;
+}
+
+body.ss-dark-mode .ss-specialty-note span {
+  color: #c7d3d2;
+}
+
+@media(max-width:760px) {
+  .ss-engine-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .ss-engine-tab {
+    text-align: center;
+  }
+}
