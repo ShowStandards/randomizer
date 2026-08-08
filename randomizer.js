@@ -1229,6 +1229,10 @@ function selectedEventCategory() {
   return $('eventCategory') ? $('eventCategory').value : 'conformation';
 }
 
+function selectedRandomizerType() {
+  return $('randomizerType') ? $('randomizerType').value : 'standard';
+}
+
 function selectedChampionshipMode() {
   return $('championshipMode') ? $('championshipMode').value : 'regular';
 }
@@ -1265,10 +1269,24 @@ function renderShowFormatOptions() {
   const select = $('showFormat');
   if (!select) return;
 
+  const previous = select.value;
   const formats = SS_PHASE1_FORMATS[category] || [];
+
   select.innerHTML = formats
-    .map(([value, label]) => '<option value="' + value + '">' + escapeHtml(label) + '</option>')
+    .map(([value, label]) =>
+      '<option value="' + escapeHtml(value) + '">' + escapeHtml(label) + '</option>'
+    )
     .join('');
+
+  const validPrevious = formats.some(([value]) => value === previous);
+  select.value = validPrevious
+    ? previous
+    : (formats[0] ? formats[0][0] : '');
+
+  // Jcink/browser repaint safeguard.
+  if (select.selectedIndex < 0 && select.options.length) {
+    select.selectedIndex = 0;
+  }
 }
 
 function setChampionshipQualificationOptions() {
@@ -1301,11 +1319,26 @@ function setChampionshipQualificationOptions() {
 
 function updatePhase1UI() {
   const category = selectedEventCategory();
+  const randomizerType = selectedRandomizerType();
+  const isAssociation = randomizerType === 'association';
   const isActivity = category === 'activities';
   const isHerding = category === 'herding';
   const isChampionship = selectedChampionshipMode() === 'championship' && !isHerding;
 
   renderShowFormatOptions();
+
+  const associationNotice = $('associationComingSoon');
+  if (associationNotice) {
+    associationNotice.className = isAssociation ? 'ss-association-notice' : 'hidden';
+  }
+
+  const runButton = $('ssRunButton');
+  if (runButton) {
+    runButton.disabled = isAssociation;
+    runButton.textContent = isAssociation
+      ? 'Association Shows — Coming Next'
+      : '🎲 Randomize Show';
+  }
 
   $('activityOptionsPanel').className = isActivity ? 'ss-setup-card' : 'hidden';
   $('herdingPanel').className = isHerding ? 'ss-setup-card' : 'hidden';
@@ -1336,12 +1369,13 @@ function updatePhase1UI() {
 }
 
 function updateSetupSummary() {
+  const type = selectedRandomizerType() === 'association' ? 'Association' : 'Standard';
   const species = $('showSpecies') ? $('showSpecies').selectedOptions[0]?.textContent : '';
   const category = $('eventCategory') ? $('eventCategory').selectedOptions[0]?.textContent : '';
   const format = $('showFormat') ? $('showFormat').selectedOptions[0]?.textContent : '';
   const mode = selectedChampionshipMode() === 'championship' ? 'Championship' : 'Regular';
 
-  const parts = [species, category, format, mode].filter(Boolean);
+  const parts = [type, species, category, format, mode].filter(Boolean);
   const el = $('setupSummary');
   if (el) el.textContent = parts.join(' • ');
 }
@@ -1935,6 +1969,7 @@ function initializeRandomizerUI() {
   if (!$('showSpecies')) return;
 
   const watched = [
+    'randomizerType',
     'showSpecies',
     'eventCategory',
     'showFormat',
@@ -2623,6 +2658,11 @@ async function randomizeShow() {
   savedShowData = null;
   savedRecords = [];
 
+  if (selectedRandomizerType() === 'association') {
+    showMessage('error', 'Association Title Shows are reserved for Phase 2 and are not active yet.');
+    return;
+  }
+
   if (!showData.species) {
     showMessage('error', 'Please select the show species.');
     return;
@@ -2661,6 +2701,7 @@ function clearData() {
     if (el) el.value = '';
   });
 
+  if ($('randomizerType')) $('randomizerType').value = 'standard';
   if ($('showSpecies')) $('showSpecies').value = 'dog';
   if ($('eventCategory')) $('eventCategory').value = 'conformation';
   if ($('championshipMode')) $('championshipMode').value = 'regular';
