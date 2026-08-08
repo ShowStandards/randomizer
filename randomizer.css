@@ -347,3 +347,218 @@ body.ss-dark-mode .ss-summary-pill {
     text-align: left;
   }
 }
+
+
+/* ============================================================
+   PHASE 1.1 — CLEAN UI PASS
+============================================================ */
+.ss-randomizer {
+  max-width: 1040px;
+  padding: 30px;
+}
+
+.ss-randomizer-head {
+  text-align: center;
+}
+
+.ss-randomizer-head .ss-kicker {
+  margin-bottom: 3px;
+}
+
+.ss-randomizer .version-note {
+  margin-bottom: 0;
+}
+
+.ss-setup-progress {
+  display: flex !important;
+  align-items: stretch;
+  gap: 10px;
+  margin: 18px 0 22px;
+}
+
+.ss-step {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(70,137,134,.2);
+  border-radius: 999px;
+  background: rgba(70,137,134,.035);
+  color: #687575;
+}
+
+.ss-step-number {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(70,137,134,.12);
+  color: #2f6f6f;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ss-step-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .03em;
+}
+
+.ss-step.active {
+  border-color: rgba(70,137,134,.35);
+  background: rgba(70,137,134,.09);
+  color: #2f6f6f;
+}
+
+.ss-setup-card,
+#championshipPanel {
+  padding: 22px;
+  margin-bottom: 18px;
+  border-radius: 15px;
+}
+
+.ss-card-title {
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(70,137,134,.14);
+}
+
+.ss-card-title h2,
+.ss-setup-card > h2,
+#championshipPanel > h2 {
+  margin: 2px 0 0;
+  font-size: 20px;
+}
+
+.ss-summary-pill {
+  max-width: 58%;
+  padding: 7px 12px;
+  text-align: right;
+}
+
+.ss-grid.two,
+.ss-series-grid {
+  gap: 14px;
+}
+
+.ss-grid.one {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.ss-field {
+  margin-bottom: 14px;
+}
+
+.ss-field:last-child {
+  margin-bottom: 0;
+}
+
+.ss-field label {
+  margin-bottom: 6px;
+}
+
+.ss-field input,
+.ss-field select,
+.ss-field textarea {
+  min-height: 42px;
+  background: #fff !important;
+  border-color: rgba(70,137,134,.28);
+}
+
+.ss-field select {
+  color: #182020 !important;
+  -webkit-text-fill-color: #182020;
+}
+
+.ss-field select option {
+  color: #182020;
+  background: #fff;
+}
+
+.ss-field textarea {
+  min-height: 360px;
+}
+
+.ss-association-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  margin-top: 4px;
+  border: 1px dashed rgba(70,137,134,.35);
+  border-radius: 10px;
+  background: rgba(70,137,134,.06);
+  color: #2f6f6f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ss-association-notice span {
+  color: #687575;
+}
+
+.ss-action-bar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.ss-action-bar .ss-button {
+  margin-bottom: 0;
+}
+
+body.ss-dark-mode .ss-field input,
+body.ss-dark-mode .ss-field select,
+body.ss-dark-mode .ss-field textarea {
+  background: #242b2b !important;
+  color: #f2f2f2 !important;
+  -webkit-text-fill-color: #f2f2f2;
+}
+
+body.ss-dark-mode .ss-field select option {
+  background: #242b2b;
+  color: #f2f2f2;
+}
+
+body.ss-dark-mode .ss-association-notice {
+  background: rgba(70,137,134,.13);
+  border-color: #468986;
+  color: #d9e5e4;
+}
+
+body.ss-dark-mode .ss-association-notice span {
+  color: #c7d3d2;
+}
+
+@media(max-width:760px) {
+  .ss-randomizer {
+    padding: 18px;
+  }
+
+  .ss-setup-progress {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .ss-step {
+    border-radius: 12px;
+    padding: 8px 6px;
+  }
+
+  .ss-step-label {
+    font-size: 10px;
+  }
+
+  .ss-summary-pill {
+    max-width: none;
+    text-align: left;
+  }
+}
