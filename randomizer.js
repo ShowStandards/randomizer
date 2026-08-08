@@ -636,6 +636,7 @@ async function uploadShowRecords() {
     }
     log += '<br><strong>Upload complete.</strong><br>Inserted: ' + inserted + '<br>Skipped: ' + skipped + '<br>Failed: ' + failed;
     showMessage(failed ? 'error' : 'success', log);
+    captureWorkspaceState();
   } catch (err) {
     showMessage('error', '<strong>Upload failed:</strong><br>' + String(err.message || err));
   } finally {
@@ -1201,6 +1202,259 @@ function runConformation(rawData, showData) {
 
 
 
+
+// =============================================================
+// RANDOMIZER WORKSPACE TABS
+// Each tab keeps its own form, entries, results and upload state
+// until this page is refreshed or that tab is manually cleared.
+// =============================================================
+let activeRandomizerTab = 'conformation';
+
+const randomizerWorkspaceState = {
+  conformation: null,
+  activities: null,
+  specialty: null
+};
+
+const RANDOMIZER_TAB_DEFAULTS = {
+  conformation: {
+    species: 'dog',
+    category: 'conformation',
+    format: 'conformation',
+    championshipMode: 'regular',
+    activityKey: '__MIXED__',
+    activityResultMethod: 'placement',
+    maxScore: '100',
+    herdingEventType: 'instinct'
+  },
+  activities: {
+    species: 'dog',
+    category: 'activities',
+    format: 'divided',
+    championshipMode: 'regular',
+    activityKey: '__MIXED__',
+    activityResultMethod: 'placement',
+    maxScore: '100',
+    herdingEventType: 'instinct'
+  },
+  specialty: {
+    species: 'dog',
+    category: 'herding',
+    format: 'herding-club',
+    championshipMode: 'regular',
+    activityKey: '__MIXED__',
+    activityResultMethod: 'placement',
+    maxScore: '300',
+    herdingEventType: 'instinct'
+  }
+};
+
+function activeTabDefaults(tabName) {
+  return Object.assign({}, RANDOMIZER_TAB_DEFAULTS[tabName] || RANDOMIZER_TAB_DEFAULTS.conformation);
+}
+
+function selectedChampionshipShowIdSet() {
+  return selectedChampionshipShowIds();
+}
+
+function captureWorkspaceState() {
+  const state = {
+    species: $('showSpecies') ? $('showSpecies').value : 'dog',
+    category: $('eventCategory') ? $('eventCategory').value : 'conformation',
+    format: $('showFormat') ? $('showFormat').value : '',
+    championshipMode: $('championshipMode') ? $('championshipMode').value : 'regular',
+    activityKey: $('activityKey') ? $('activityKey').value : '__MIXED__',
+    activityResultMethod: $('activityResultMethod') ? $('activityResultMethod').value : 'placement',
+    maxScore: $('maxScore') ? $('maxScore').value : '100',
+    herdingEventType: $('herdingEventType') ? $('herdingEventType').value : 'instinct',
+    showName: $('showName') ? $('showName').value : '',
+    bannerUrl: $('bannerUrl') ? $('bannerUrl').value : '',
+    seriesName: $('seriesName') ? $('seriesName').value : '',
+    seriesRound: $('seriesRound') ? $('seriesRound').value : '',
+    rawData: $('rawData') ? $('rawData').value : '',
+    championshipSeries: $('championshipSeries') ? $('championshipSeries').value : '',
+    championshipQualification: $('championshipQualification') ? $('championshipQualification').value : '',
+    championshipShowIds: selectedChampionshipShowIdSet(),
+    championshipPreviewHtml: $('championshipPreview') ? $('championshipPreview').innerHTML : '',
+    championshipPreviewClass: $('championshipPreview') ? $('championshipPreview').className : 'hidden',
+    resultsHtml: $('resultsContainer') ? $('resultsContainer').innerHTML : '',
+    resultsClass: $('resultsContainer') ? $('resultsContainer').className : 'hidden',
+    messageHtml: $('ssMessages') ? $('ssMessages').innerHTML : '',
+    messageClass: $('ssMessages') ? $('ssMessages').className : 'hidden',
+    savedResults,
+    savedShowData,
+    savedRecords: Array.isArray(savedRecords) ? savedRecords.slice() : []
+  };
+
+  randomizerWorkspaceState[activeRandomizerTab] = state;
+  return state;
+}
+
+function resetVisibleWorkspace() {
+  if ($('showName')) $('showName').value = '';
+  if ($('bannerUrl')) $('bannerUrl').value = '';
+  if ($('seriesName')) $('seriesName').value = '';
+  if ($('seriesRound')) $('seriesRound').value = '';
+  if ($('rawData')) $('rawData').value = '';
+
+  if ($('championshipSeries')) $('championshipSeries').value = '';
+  if ($('championshipShowList')) {
+    $('championshipShowList').innerHTML = '<small>Select a source series to load its shows.</small>';
+  }
+  if ($('championshipPreview')) {
+    $('championshipPreview').innerHTML = '';
+    $('championshipPreview').className = 'hidden';
+  }
+
+  if ($('resultsContainer')) {
+    $('resultsContainer').innerHTML = '';
+    $('resultsContainer').className = 'hidden';
+  }
+
+  if ($('ssMessages')) {
+    $('ssMessages').innerHTML = '';
+    $('ssMessages').className = 'hidden';
+  }
+
+  savedResults = '';
+  savedShowData = null;
+  savedRecords = [];
+}
+
+function setEngineTabButtons(tabName) {
+  document.querySelectorAll('.ss-engine-tab').forEach(button => {
+    const active = button.dataset.engineTab === tabName;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function configureWorkspaceForTab(tabName) {
+  const defaults = activeTabDefaults(tabName);
+
+  if ($('eventCategory')) $('eventCategory').value = defaults.category;
+
+  const kicker = $('engineKicker');
+  const heading = $('engineHeading');
+  const formatLabel = $('showFormatLabel');
+  const formatHelp = $('showFormatHelp');
+  const specialtyNote = $('specialtySystemNote');
+
+  if (tabName === 'conformation') {
+    if (kicker) kicker.textContent = 'Conformation';
+    if (heading) heading.textContent = 'Build Your Conformation Show';
+    if (formatLabel) formatLabel.textContent = 'Conformation Format';
+    if (formatHelp) formatHelp.textContent = 'All Breed, Group or Breed Specialty, Rare Breed, Major Chase, Titled, or Untitled.';
+    if (specialtyNote) specialtyNote.className = 'hidden';
+  }
+
+  if (tabName === 'activities') {
+    if (kicker) kicker.textContent = 'Standard Activities';
+    if (heading) heading.textContent = 'Build Your Activity Show';
+    if (formatLabel) formatLabel.textContent = 'Activity Format';
+    if (formatHelp) formatHelp.textContent = 'Standard activity points and titles use the same activity engine across all species.';
+    if (specialtyNote) specialtyNote.className = 'hidden';
+  }
+
+  if (tabName === 'specialty') {
+    if (kicker) kicker.textContent = 'Specialty / Associations';
+    if (heading) heading.textContent = 'Build Your Specialty Event';
+    if (formatLabel) formatLabel.textContent = 'Specialty System';
+    if (formatHelp) formatHelp.textContent = 'Systems here have their own qualification, award, point, or title rules.';
+    if (specialtyNote) specialtyNote.className = 'ss-specialty-note';
+  }
+}
+
+async function restoreChampionshipSelections(state) {
+  if (!state || state.championshipMode !== 'championship') return;
+
+  await loadChampionshipSeries();
+
+  if (state.championshipSeries && $('championshipSeries')) {
+    $('championshipSeries').value = state.championshipSeries;
+    await loadChampionshipShows();
+
+    const selected = new Set((state.championshipShowIds || []).map(String));
+    document.querySelectorAll('.ss-championship-show').forEach(box => {
+      box.checked = selected.has(String(box.value));
+    });
+  }
+
+  if (state.championshipQualification && $('championshipQualification')) {
+    $('championshipQualification').value = state.championshipQualification;
+  }
+
+  if ($('championshipPreview')) {
+    $('championshipPreview').innerHTML = state.championshipPreviewHtml || '';
+    $('championshipPreview').className = state.championshipPreviewClass || 'hidden';
+  }
+}
+
+async function restoreWorkspaceState(tabName) {
+  const defaults = activeTabDefaults(tabName);
+  const state = randomizerWorkspaceState[tabName] || defaults;
+
+  resetVisibleWorkspace();
+  configureWorkspaceForTab(tabName);
+
+  if ($('showSpecies')) $('showSpecies').value = state.species || defaults.species;
+  if ($('eventCategory')) $('eventCategory').value = defaults.category;
+  if ($('championshipMode')) $('championshipMode').value = state.championshipMode || defaults.championshipMode;
+  if ($('activityResultMethod')) $('activityResultMethod').value = state.activityResultMethod || defaults.activityResultMethod;
+  if ($('maxScore')) $('maxScore').value = state.maxScore || defaults.maxScore;
+  if ($('herdingEventType')) $('herdingEventType').value = state.herdingEventType || defaults.herdingEventType;
+
+  renderShowFormatOptions();
+  if ($('showFormat')) {
+    const wantedFormat = state.format || defaults.format;
+    const valid = [...$('showFormat').options].some(option => option.value === wantedFormat);
+    if (valid) $('showFormat').value = wantedFormat;
+  }
+
+  if (tabName === 'activities') {
+    await populateActivitySelector();
+    if ($('activityKey')) {
+      const wantedActivity = state.activityKey || defaults.activityKey;
+      const valid = [...$('activityKey').options].some(option => option.value === wantedActivity);
+      if (valid) $('activityKey').value = wantedActivity;
+    }
+  }
+
+  if ($('showName')) $('showName').value = state.showName || '';
+  if ($('bannerUrl')) $('bannerUrl').value = state.bannerUrl || '';
+  if ($('seriesName')) $('seriesName').value = state.seriesName || '';
+  if ($('seriesRound')) $('seriesRound').value = state.seriesRound || '';
+  if ($('rawData')) $('rawData').value = state.rawData || '';
+
+  savedResults = state.savedResults || '';
+  savedShowData = state.savedShowData || null;
+  savedRecords = Array.isArray(state.savedRecords) ? state.savedRecords.slice() : [];
+
+  if ($('resultsContainer')) {
+    $('resultsContainer').innerHTML = state.resultsHtml || '';
+    $('resultsContainer').className = state.resultsClass || 'hidden';
+  }
+
+  if ($('ssMessages')) {
+    $('ssMessages').innerHTML = state.messageHtml || '';
+    $('ssMessages').className = state.messageClass || 'hidden';
+  }
+
+  updatePhase1UI();
+  await restoreChampionshipSelections(state);
+  updateSetupSummary();
+}
+
+async function switchRandomizerTab(tabName) {
+  if (!RANDOMIZER_TAB_DEFAULTS[tabName] || tabName === activeRandomizerTab) return;
+
+  captureWorkspaceState();
+  activeRandomizerTab = tabName;
+  setEngineTabButtons(tabName);
+  await restoreWorkspaceState(tabName);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 // =============================================================
 // PHASE 1 — GUIDED STANDARD SHOW SETUP
 // =============================================================
@@ -1229,9 +1483,6 @@ function selectedEventCategory() {
   return $('eventCategory') ? $('eventCategory').value : 'conformation';
 }
 
-function selectedRandomizerType() {
-  return $('randomizerType') ? $('randomizerType').value : 'standard';
-}
 
 function selectedChampionshipMode() {
   return $('championshipMode') ? $('championshipMode').value : 'regular';
@@ -1319,24 +1570,17 @@ function setChampionshipQualificationOptions() {
 
 function updatePhase1UI() {
   const category = selectedEventCategory();
-  const randomizerType = selectedRandomizerType();
-  const isAssociation = randomizerType === 'association';
   const isActivity = category === 'activities';
   const isHerding = category === 'herding';
   const isChampionship = selectedChampionshipMode() === 'championship' && !isHerding;
 
   renderShowFormatOptions();
 
-  const associationNotice = $('associationComingSoon');
-  if (associationNotice) {
-    associationNotice.className = isAssociation ? 'ss-association-notice' : 'hidden';
-  }
-
   const runButton = $('ssRunButton');
   if (runButton) {
-    runButton.disabled = isAssociation;
-    runButton.textContent = isAssociation
-      ? 'Association Shows — Coming Next'
+    runButton.disabled = false;
+    runButton.textContent = isHerding
+      ? '🎲 Run Specialty Event'
       : '🎲 Randomize Show';
   }
 
@@ -1369,13 +1613,18 @@ function updatePhase1UI() {
 }
 
 function updateSetupSummary() {
-  const type = selectedRandomizerType() === 'association' ? 'Association' : 'Standard';
-  const species = $('showSpecies') ? $('showSpecies').selectedOptions[0]?.textContent : '';
-  const category = $('eventCategory') ? $('eventCategory').selectedOptions[0]?.textContent : '';
-  const format = $('showFormat') ? $('showFormat').selectedOptions[0]?.textContent : '';
-  const mode = selectedChampionshipMode() === 'championship' ? 'Championship' : 'Regular';
+  const tabLabel =
+    activeRandomizerTab === 'conformation' ? 'Conformation' :
+    activeRandomizerTab === 'activities' ? 'Standard Activities' :
+    'Specialty';
 
-  const parts = [type, species, category, format, mode].filter(Boolean);
+  const species = $('showSpecies') ? $('showSpecies').selectedOptions[0]?.textContent : '';
+  const format = $('showFormat') ? $('showFormat').selectedOptions[0]?.textContent : '';
+  const mode = selectedChampionshipMode() === 'championship' && activeRandomizerTab !== 'specialty'
+    ? 'Championship'
+    : 'Regular';
+
+  const parts = [tabLabel, species, format, mode].filter(Boolean);
   const el = $('setupSummary');
   if (el) el.textContent = parts.join(' • ');
 }
@@ -1969,9 +2218,7 @@ function initializeRandomizerUI() {
   if (!$('showSpecies')) return;
 
   const watched = [
-    'randomizerType',
     'showSpecies',
-    'eventCategory',
     'showFormat',
     'championshipMode',
     'activityResultMethod'
@@ -1980,15 +2227,27 @@ function initializeRandomizerUI() {
   watched.forEach(id => {
     const el = $(id);
     if (el) el.addEventListener('change', async () => {
-      if (id === 'showSpecies') await populateActivitySelector();
+      if (id === 'showSpecies' && activeRandomizerTab === 'activities') {
+        await populateActivitySelector();
+      }
+
       updatePhase1UI();
 
       if (
         selectedChampionshipMode() === 'championship' &&
-        (id === 'eventCategory' || id === 'showSpecies')
+        id === 'showSpecies' &&
+        activeRandomizerTab !== 'specialty'
       ) {
         await loadChampionshipSeries();
       }
+
+      captureWorkspaceState();
+    });
+  });
+
+  document.querySelectorAll('.ss-engine-tab').forEach(button => {
+    button.addEventListener('click', () => {
+      switchRandomizerTab(button.dataset.engineTab);
     });
   });
 
@@ -2010,8 +2269,11 @@ function initializeRandomizerUI() {
   if (clearButton) clearButton.addEventListener('click', clearData);
   if (previewButton) previewButton.addEventListener('click', previewChampionship);
 
+  configureWorkspaceForTab(activeRandomizerTab);
+  setEngineTabButtons(activeRandomizerTab);
   renderShowFormatOptions();
-  populateActivitySelector().finally(updatePhase1UI);
+  updatePhase1UI();
+  captureWorkspaceState();
 }
 
 if (document.readyState === 'loading') {
@@ -2601,6 +2863,7 @@ function sortEntriesOnly() {
     savedResults = sortConformationEntries(rawData);
     renderSortedResults(savedResults);
     showMessage('success', 'Entries sorted for copying only. No show records were created and nothing is ready to upload.');
+    captureWorkspaceState();
   } catch (err) {
     showMessage('error', '<strong>ERROR:</strong> ' + String(err.message || err));
   }
@@ -2658,11 +2921,6 @@ async function randomizeShow() {
   savedShowData = null;
   savedRecords = [];
 
-  if (selectedRandomizerType() === 'association') {
-    showMessage('error', 'Association Title Shows are reserved for Phase 2 and are not active yet.');
-    return;
-  }
-
   if (!showData.species) {
     showMessage('error', 'Please select the show species.');
     return;
@@ -2690,34 +2948,24 @@ async function randomizeShow() {
     savedShowData = showData;
     savedRecords = result.records;
     renderResults(savedResults);
+    captureWorkspaceState();
 
   } catch (err) {
     showMessage('error', '<strong>ERROR:</strong> ' + escapeHtml(String(err.message || err)));
   }
 }
 function clearData() {
-  ['rawData','showName','bannerUrl','seriesName','seriesRound'].forEach(id => {
-    const el = $(id);
-    if (el) el.value = '';
-  });
+  const label =
+    activeRandomizerTab === 'conformation' ? 'Conformation' :
+    activeRandomizerTab === 'activities' ? 'Standard Activities' :
+    'Specialty / Association';
 
-  if ($('randomizerType')) $('randomizerType').value = 'standard';
-  if ($('showSpecies')) $('showSpecies').value = 'dog';
-  if ($('eventCategory')) $('eventCategory').value = 'conformation';
-  if ($('championshipMode')) $('championshipMode').value = 'regular';
-  if ($('activityResultMethod')) $('activityResultMethod').value = 'placement';
-  if ($('herdingEventType')) $('herdingEventType').value = 'instinct';
+  if (!confirm('Clear the ' + label + ' workspace?\\n\\nThis clears only this tab. The other randomizer tabs will stay untouched.')) {
+    return;
+  }
 
-  renderShowFormatOptions();
-  populateActivitySelector().finally(updatePhase1UI);
-
-  $('resultsContainer').className = 'hidden';
-  $('resultsContainer').innerHTML = '';
-
-  hideMessage();
-  savedResults = '';
-  savedShowData = null;
-  savedRecords = [];
+  randomizerWorkspaceState[activeRandomizerTab] = null;
+  restoreWorkspaceState(activeRandomizerTab);
 }
 function copyResults() {
   navigator.clipboard.writeText(savedResults || '').then(() => showMessage('success', 'Results copied.')).catch(() => alert('Could not copy results. Please select and copy manually.'));
