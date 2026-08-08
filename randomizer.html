@@ -5,22 +5,40 @@
     <div class="version-note">Development • Phase 1 — Standard Shows</div>
   </div>
 
-  <div class="ss-setup-progress">
-    <div class="ss-step active"><span>1</span> Setup</div>
-    <div class="ss-step"><span>2</span> Entries</div>
-    <div class="ss-step"><span>3</span> Results</div>
+  <div class="ss-setup-progress" aria-label="Randomizer progress">
+    <div class="ss-step active">
+      <span class="ss-step-number">1</span>
+      <span class="ss-step-label">Setup</span>
+    </div>
+    <div class="ss-step">
+      <span class="ss-step-number">2</span>
+      <span class="ss-step-label">Entries</span>
+    </div>
+    <div class="ss-step">
+      <span class="ss-step-number">3</span>
+      <span class="ss-step-label">Results</span>
+    </div>
   </div>
 
   <section class="ss-setup-card">
     <div class="ss-card-title">
       <div>
-        <div class="ss-kicker">Step One</div>
-        <h2>Show Setup</h2>
+        <div class="ss-kicker">Show Setup</div>
+        <h2>Build Your Show</h2>
       </div>
       <div id="setupSummary" class="ss-summary-pill">Dog • Conformation • All Breed Shows • Regular</div>
     </div>
 
     <div class="ss-grid two">
+      <div class="ss-field">
+        <label for="randomizerType">Randomizer Type</label>
+        <select id="randomizerType">
+          <option value="standard">Standard Show</option>
+          <option value="association">Association Title Show — Coming Next</option>
+        </select>
+        <small>Association shows will still earn standard points and titles, plus association title credit.</small>
+      </div>
+
       <div class="ss-field">
         <label for="showSpecies">Show Species</label>
         <select id="showSpecies">
@@ -29,7 +47,9 @@
           <option value="horse">Horse</option>
         </select>
       </div>
+    </div>
 
+    <div class="ss-grid two">
       <div class="ss-field">
         <label for="eventCategory">Event Category</label>
         <select id="eventCategory">
@@ -38,14 +58,16 @@
           <option value="herding">Herding Club</option>
         </select>
       </div>
-    </div>
 
-    <div class="ss-grid two">
       <div class="ss-field">
         <label for="showFormat">Show Format</label>
-        <select id="showFormat"></select>
+        <select id="showFormat">
+          <option value="conformation">All Breed Shows</option>
+        </select>
       </div>
+    </div>
 
+    <div class="ss-grid one">
       <div class="ss-field" id="championshipModeField">
         <label for="championshipMode">Championship Mode</label>
         <select id="championshipMode">
@@ -53,6 +75,11 @@
           <option value="championship">Championship Show</option>
         </select>
       </div>
+    </div>
+
+    <div id="associationComingSoon" class="hidden">
+      <strong>Association Title Shows are the next build phase.</strong>
+      <span>This option is already reserved in the new workflow so we can add association-specific classes and title tracking without redesigning the page again.</span>
     </div>
 
     <div id="activityOptionsPanel" class="hidden">
@@ -95,7 +122,7 @@
 
   <section class="ss-setup-card">
     <div class="ss-kicker">Show Details</div>
-    <h2>Show Information</h2>
+    <h2>Information</h2>
 
     <div class="ss-grid two">
       <div class="ss-field">
@@ -156,8 +183,8 @@
   </section>
 
   <section class="ss-setup-card" id="entriesField">
-    <div class="ss-kicker">Step Two</div>
-    <h2>Entries</h2>
+    <div class="ss-kicker">Entries</div>
+    <h2>Paste Show Entries</h2>
 
     <div class="ss-field">
       <label for="rawData">Paste Entries</label>
