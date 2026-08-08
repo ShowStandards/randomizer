@@ -1508,10 +1508,29 @@ function renderSpecialtySystemOptions() {
   const species = $('showSpecies') ? $('showSpecies').value : 'dog';
   const systems = specialtySystemsForSpecies(species);
 
+  const specialtyNote = $('specialtySystemNote');
+  if (specialtyNote) {
+    const names = systems.map(system =>
+      system.display_name + (system.active ? '' : ' (Coming Next)')
+    );
+
+    specialtyNote.innerHTML =
+      '<strong>Specialty / Association systems for ' +
+      escapeHtml(species.charAt(0).toUpperCase() + species.slice(1)) +
+      '</strong>' +
+      '<span>' +
+      (names.length ? escapeHtml(names.join(' • ')) : 'None configured yet.') +
+      '</span>';
+  }
+
+  if (!systems.length) {
+    $('showFormat').innerHTML =
+      '<option value="">No specialty systems configured for this species yet</option>';
+    return;
+  }
+
   $('showFormat').innerHTML = systems.map(system =>
-    '<option value="' + escapeHtml(system.key) + '"' +
-    (system.active ? '' : ' disabled') +
-    '>' +
+    '<option value="' + escapeHtml(system.key) + '">' +
     escapeHtml(system.display_name) +
     (system.active ? '' : ' — Coming Next') +
     '</option>'
