@@ -196,4 +196,154 @@ body.ss-dark-mode .ss-results-content { background: #2a3131; border-color: #3b4d
 body.ss-dark-mode .ss-button.secondary { background: #242b2b; border-color: #3b4d4d; color: #d9e5e4; }
 body.ss-dark-mode .ss-message.success { background: rgba(70,137,134,.12); border-color: #468986; }
 body.ss-dark-mode .ss-message.error { background: rgba(139,30,30,.15); border-color: rgba(200,70,70,.35); color: #ffb3b3; }
-.ss-setup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ss-setup-card{padding:16px;margin-bottom:18px;border:1px solid rgba(70,137,134,.22);border-radius:12px;background:rgba(70,137,134,.035)}.ss-setup-card h2{margin-bottom:14px}.ss-inline-summary{padding:10px 12px;border-radius:10px;background:rgba(70,137,134,.08);font-size:13px;color:#2f6f6f}@media(max-width:700px){.ss-setup-grid{grid-template-columns:1fr}}body.ss-dark-mode .ss-setup-card{background:#242b2b;border-color:#3b4d4d}body.ss-dark-mode .ss-inline-summary{color:#d9e5e4;background:rgba(70,137,134,.15)}
+
+
+/* ============================================================
+   PHASE 1 — GUIDED RANDOMIZER LAYOUT
+============================================================ */
+.ss-randomizer {
+  max-width: 1080px;
+}
+
+.ss-randomizer-head {
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(70,137,134,.18);
+  margin-bottom: 18px;
+}
+
+.ss-kicker {
+  color: #468986;
+  font-family: 'Barlow SC','Oswald',sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+
+.ss-setup-progress {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.ss-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid rgba(70,137,134,.18);
+  border-radius: 10px;
+  background: rgba(70,137,134,.035);
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ss-step span {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(70,137,134,.12);
+  color: #2f6f6f;
+}
+
+.ss-step.active {
+  background: rgba(70,137,134,.09);
+  color: #2f6f6f;
+}
+
+.ss-setup-card {
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid rgba(70,137,134,.2);
+  border-radius: 13px;
+  background: rgba(70,137,134,.025);
+}
+
+.ss-setup-card h2,
+.ss-setup-card h3 {
+  margin: 3px 0 14px;
+}
+
+.ss-card-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.ss-summary-pill {
+  max-width: 52%;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(70,137,134,.1);
+  color: #2f6f6f;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.ss-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.ss-grid.two,
+.ss-series-grid {
+  grid-template-columns: repeat(2, minmax(0,1fr));
+}
+
+.ss-series-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.ss-action-bar {
+  margin-top: 6px;
+}
+
+#championshipPanel {
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid rgba(70,137,134,.22);
+  border-radius: 13px;
+  background: rgba(70,137,134,.045);
+}
+
+body.ss-dark-mode .ss-setup-card,
+body.ss-dark-mode #championshipPanel {
+  background: #242b2b;
+  border-color: #3b4d4d;
+}
+
+body.ss-dark-mode .ss-step,
+body.ss-dark-mode .ss-summary-pill {
+  background: rgba(70,137,134,.15);
+  border-color: #3b4d4d;
+  color: #d9e5e4;
+}
+
+@media(max-width:760px) {
+  .ss-grid.two,
+  .ss-series-grid,
+  .ss-setup-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .ss-card-title {
+    display: block;
+  }
+
+  .ss-summary-pill {
+    max-width: none;
+    margin-top: 8px;
+    text-align: left;
+  }
+}
