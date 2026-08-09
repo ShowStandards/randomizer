@@ -124,9 +124,17 @@ function expandTeamEntries(className, entry) {
 function addLine(lines, text) { if (text === undefined || text === null) lines.push(''); else lines.push(String(text)); }
 function bold(text) { return '[b]' + text + '[/b]'; }
 function placementLabel(i) { return String(i); }
-function getShowTypeKind(showType) {
+function getShowTypeKind(showType, showData) {
+  if (showData && showData.associationEventType === 'gaiting') return 'activity';
+  if (showData && showData.associationEventType === 'breeding') return 'conformation';
+  if (showData && showData.associationEventType === 'halter') return 'conformation';
+
   const type = String(showType || '');
-  return (type.startsWith('activity') || type === 'herding-club') ? 'activity' : 'conformation';
+  return (
+    type.startsWith('activity') ||
+    type === 'herding-club' ||
+    /^specialty-testing-system-/.test(type)
+  ) ? 'activity' : 'conformation';
 }
 function getShowScope(showType) {
   const t = String(showType || '').toLowerCase();
@@ -518,13 +526,15 @@ async function createShowUpload(supabase, showData, finalOutput) {
   // reject the upload because of older raw_data/formatted_output/banner/date fields.
   const payload = {
     show_name: showData.showName,
-    show_type: getShowTypeKind(showData.showType),
+    show_type: getShowTypeKind(showData.showType, showData),
     show_scope: getShowScope(showData.showType),
     import_type: 'randomizer',
     series_name: showData.seriesName || null,
     series_round: Number.isFinite(Number(showData.seriesRound)) && String(showData.seriesRound || '').trim() !== ''
       ? Number(showData.seriesRound)
       : null,
+    association_key: showData.associationKey || null,
+    association_event_type: showData.associationEventType || null,
     raw_text: finalOutput
   };
 
@@ -607,7 +617,9 @@ async function uploadShowRecords() {
         max_score: r.max_score !== null && r.max_score !== undefined ? Number(r.max_score) : null,
         passed: typeof r.passed === 'boolean' ? r.passed : null,
         score_label: r.score_label || null,
-        activity_key: r.activity_key || null
+        activity_key: r.activity_key || null,
+        association_key: r.association_key || showData.associationKey || null,
+        association_event_type: r.association_event_type || showData.associationEventType || null
       };
       let { error } = await supabase.from('show_records').insert(payload);
       if (error && /score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
@@ -1506,7 +1518,7 @@ const SS_SPECIALTY_SYSTEMS = [
     key: 'icelandic_horse_club',
     display_name: 'Icelandic Horse Club',
     species: 'horse',
-    active: false,
+    active: true,
     title_system: true
   },
   {
@@ -1693,7 +1705,10 @@ function updatePhase1UI() {
   const isTesting =
     activeRandomizerTab === 'specialty' &&
     /^testing_system_/.test(selectedSpecialtySystem || '');
-  const isSpecialtyRunner = isHerding || isTesting;
+  const isIcelandic =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'icelandic_horse_club';
+  const isSpecialtyRunner = isHerding || isTesting || isIcelandic;
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
@@ -1721,6 +1736,15 @@ function updatePhase1UI() {
       select.innerHTML = [
         ['instinct', 'Instinct Testing'],
         ['stakes', 'Stakes Classes']
+      ].map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+    } else if (isIcelandic) {
+      select.innerHTML = [
+        ['halter', 'IHASS Halter Show'],
+        ['gaiting', 'IHASS Gaiting Show'],
+        ['breeding', 'IHASS Breeding Show']
       ].map(([value,label]) =>
         '<option value="' + value + '">' + label + '</option>'
       ).join('');
@@ -2976,6 +3000,152 @@ function runHerdingClub(rawData, showData) {
 }
 
 
+
+function tagAssociationRecords(result, associationKey, eventType) {
+  const tagged = result || { lines: [], records: [] };
+  (tagged.records || []).forEach(record => {
+    record.association_key = associationKey;
+    record.association_event_type = eventType;
+  });
+  return tagged;
+}
+
+function parseIcelandicBreeding(rawData) {
+  const lines = String(rawData || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(cleanLine);
+
+  const classes = [];
+  let current = null;
+
+  lines.forEach(line => {
+    if (!line) return;
+
+    if (line.includes(' - ')) {
+      if (current) current.entries.push(line);
+      return;
+    }
+
+    // Historical IHASS breeding shows used Class 1A-4C.
+    // Also permit a plain custom class heading so future shows are not locked
+    // to the old class list.
+    if (/^class\s+[1-4][abc]$/i.test(line) || /^breeding\s+class\b/i.test(line)) {
+      current = { name: line, entries: [] };
+      classes.push(current);
+      return;
+    }
+
+    current = { name: line, entries: [] };
+    classes.push(current);
+  });
+
+  return classes.filter(cls => cls.entries.length);
+}
+
+function randomIcelandicBreedingScore() {
+  // Existing IHASS breeding-show design: 50.00-150.00.
+  return Number((Math.random() * 100 + 50).toFixed(2));
+}
+
+function runIcelandicBreeding(rawData, showData) {
+  const classes = parseIcelandicBreeding(rawData);
+  if (!classes.length) {
+    throw new Error('No valid IHASS Breeding Show classes found. Use a class heading followed by Animal Name - Owner entries.');
+  }
+
+  const lines = [];
+  const records = [];
+
+  addLine(lines, bold('IHASS Breeding Show'));
+  addLine(lines, '');
+
+  classes.forEach((cls, classIndex) => {
+    if (classIndex > 0) addLine(lines, '');
+    addLine(lines, bold(cls.name));
+
+    const ranked = cls.entries.map(animal => ({
+      animal,
+      score: randomIcelandicBreedingScore()
+    })).sort((a, b) => b.score - a.score);
+
+    ranked.forEach((horse, index) => {
+      const place = index + 1;
+      const certificate = horse.score >= 120;
+      const points = SS_CONFIG.placementPoints[place] || 0;
+
+      addLine(
+        lines,
+        placementLabel(place) + ' ' + horse.animal +
+        ' - ' + horse.score.toFixed(2) + '/150' +
+        (certificate ? ' - Breeding Stock Certificate' : '')
+      );
+
+      records.push({
+        show_name: showData.showName,
+        show_type: 'conformation',
+        show_scope: 'association',
+        association_key: 'ihass',
+        association_event_type: 'breeding',
+        activity_key: null,
+        class_name: 'IHASS Breeding Show - ' + cls.name,
+        placement: String(place),
+        animal_name: horse.animal,
+        points,
+        score: horse.score,
+        max_score: 150,
+        passed: certificate,
+        score_label: certificate ? 'Breeding Stock Certificate' : 'Breeding Score'
+      });
+    });
+  });
+
+  return { lines, records };
+}
+
+function runIcelandicClub(rawData, showData) {
+  const eventType = showData.associationEventType || showData.specialtyEventType || showData.herdingEventType || 'halter';
+
+  if (eventType === 'halter') {
+    // Run through the normal conformation engine so every earned point also
+    // contributes to ordinary Show Standard conformation totals/titles.
+    const normalShowData = Object.assign({}, showData, {
+      showType: 'all-breed',
+      associationKey: 'ihass',
+      associationEventType: 'halter'
+    });
+
+    return tagAssociationRecords(
+      runConformation(rawData, normalShowData),
+      'ihass',
+      'halter'
+    );
+  }
+
+  if (eventType === 'gaiting') {
+    // Run through the normal Gaiting activity engine. These points therefore
+    // count once toward ordinary Gaiting and are also filterable for IHASS.
+    const normalShowData = Object.assign({}, showData, {
+      showType: 'activity-divided',
+      activityKey: 'gaiting',
+      associationKey: 'ihass',
+      associationEventType: 'gaiting'
+    });
+
+    return tagAssociationRecords(
+      runActivity(rawData, normalShowData),
+      'ihass',
+      'gaiting'
+    );
+  }
+
+  if (eventType === 'breeding') {
+    return runIcelandicBreeding(rawData, showData);
+  }
+
+  throw new Error('Unknown Icelandic Horse Club event type.');
+}
+
 async function loadTestingEligibilityContext(rawData, showData, eventType) {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
@@ -3270,7 +3440,15 @@ async function randomizeShow() {
       ? null
       : cleanLine($('seriesRound').value),
     herdingEventType: $('herdingEventType').value,
-    specialtyEventType: $('herdingEventType').value
+    specialtyEventType: $('herdingEventType').value,
+    associationKey:
+      activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'icelandic_horse_club'
+        ? 'ihass'
+        : null,
+    associationEventType:
+      activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'icelandic_horse_club'
+        ? $('herdingEventType').value
+        : null
   };
 
   $('resultsContainer').className = 'hidden';
@@ -3314,7 +3492,9 @@ async function randomizeShow() {
       result = runHerdingClub(rawData, showData);
     } else if (/^specialty-testing-system-/.test(showData.showType)) {
       result = await runTestingSystem(rawData, showData);
-    } else if (getShowTypeKind(showData.showType) === 'activity') {
+    } else if (showData.showType === 'specialty-icelandic-horse-club') {
+      result = runIcelandicClub(rawData, showData);
+    } else if (getShowTypeKind(showData.showType, showData) === 'activity') {
       result = runActivity(rawData, showData);
     } else {
       result = runConformation(rawData, showData);
