@@ -1468,6 +1468,13 @@ const SS_SPECIALTY_SYSTEMS = [
     title_system: true
   },
   {
+    key: 'testing_system_dog',
+    display_name: 'Temperament / Therapy / CGC Testing',
+    species: 'dog',
+    active: true,
+    title_system: true
+  },
+  {
     key: 'hunting_club',
     display_name: 'Hunting Club',
     species: 'dog',
@@ -1479,6 +1486,20 @@ const SS_SPECIALTY_SYSTEMS = [
     display_name: 'Spaniel Club',
     species: 'dog',
     active: false,
+    title_system: true
+  },
+  {
+    key: 'testing_system_cat',
+    display_name: 'Temperament / Therapy Testing',
+    species: 'cat',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'testing_system_horse',
+    display_name: 'Temperament / Therapy Testing',
+    species: 'horse',
+    active: true,
     title_system: true
   },
   {
@@ -1669,30 +1690,59 @@ function updatePhase1UI() {
   const isHerding =
     activeRandomizerTab === 'specialty' &&
     selectedSpecialtySystem === 'herding_club';
+  const isTesting =
+    activeRandomizerTab === 'specialty' &&
+    /^testing_system_/.test(selectedSpecialtySystem || '');
+  const isSpecialtyRunner = isHerding || isTesting;
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
 
   renderShowFormatOptions();
 
+  // Reuse the existing specialty event-type control so no HTML/CSS change is needed.
+  if ($('herdingEventType')) {
+    const select = $('herdingEventType');
+    const current = select.value;
+
+    if (isTesting) {
+      const species = $('showSpecies') ? $('showSpecies').value : 'dog';
+      const options = [
+        ['temperament', 'Temperament Test'],
+        ['therapy', 'Therapy Animal Test']
+      ];
+      if (species === 'dog') options.push(['cgc', 'Canine Good Citizen (CGC)']);
+
+      select.innerHTML = options.map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+    } else if (isHerding) {
+      select.innerHTML = [
+        ['instinct', 'Instinct Testing'],
+        ['stakes', 'Stakes Classes']
+      ].map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+    }
+  }
+
   const runButton = $('ssRunButton');
   if (runButton) {
     runButton.disabled = false;
-    runButton.textContent = isHerding
-      ? '🎲 Run Specialty Event'
-      : '🎲 Randomize Show';
+    runButton.textContent = isSpecialtyRunner ? '🎲 Run Specialty Event' : '🎲 Randomize Show';
   }
 
   $('activityOptionsPanel').className = isActivity ? 'ss-setup-card' : 'hidden';
-  $('herdingPanel').className = isHerding ? 'ss-setup-card' : 'hidden';
-  $('championshipModeField').className = isHerding ? 'hidden' : 'ss-field';
+  $('herdingPanel').className = isSpecialtyRunner ? 'ss-setup-card' : 'hidden';
+  $('championshipModeField').className = isSpecialtyRunner ? 'hidden' : 'ss-field';
   $('championshipPanel').className = isChampionship ? 'ss-championship-panel' : 'hidden';
   $('normalSeriesFields').className = isChampionship ? 'hidden' : 'ss-series-grid';
   $('entriesField').className = isChampionship ? 'hidden' : 'ss-field';
-  $('sortButton').className = (isChampionship || isActivity || isHerding)
+  $('sortButton').className = (isChampionship || isActivity || isSpecialtyRunner)
     ? 'hidden'
     : 'ss-button secondary full';
-
   $('maxScoreField').className =
     isActivity && $('activityResultMethod').value === 'scored'
       ? 'ss-field'
@@ -2925,6 +2975,120 @@ function runHerdingClub(rawData, showData) {
   return { lines, records };
 }
 
+
+async function loadTestingEligibilityContext(rawData, showData, eventType) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
+
+  const animalMap = await loadAnimalsMap(supabase);
+  const entries = herdingEntryLines(rawData);
+  if (!entries.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
+
+  const accepted = [], declined = [];
+
+  for (const rawEntry of entries) {
+    const match = findAnimal(rawEntry, animalMap);
+    if (match.status === 'not-found') { declined.push({entry:rawEntry,reason:'Exact registry animal not found'}); continue; }
+    if (match.status === 'ambiguous') { declined.push({entry:rawEntry,reason:'Duplicate exact registry name'}); continue; }
+
+    const animal=match.animal;
+    const species=cleanLine(animal.species).toLowerCase();
+    if (species !== cleanLine(showData.species).toLowerCase()) {
+      declined.push({entry:rawEntry,reason:'Registry species does not match selected species'}); continue;
+    }
+    if (eventType==='cgc' && species!=='dog') {
+      declined.push({entry:rawEntry,reason:'CGC is dogs only'}); continue;
+    }
+
+    const {data:prior,error}=await supabase.from('show_records')
+      .select('id,animal_id,class,activity_key,passed,score,score_label,event_date')
+      .eq('animal_id',animal.id).order('event_date',{ascending:true});
+    if(error) throw new Error('Eligibility check failed for '+animal.name+': '+error.message);
+    const records=prior||[];
+
+    if(eventType==='temperament'){
+      const attempted=records.some(r =>
+        cleanLine(r.activity_key).toLowerCase()==='temperament_test' ||
+        cleanLine(r.class).toLowerCase().includes('temperament test')
+      );
+      if(attempted){declined.push({entry:rawEntry,reason:'Temperament Test may only be attempted once'});continue;}
+    }
+
+    let cgcLevel=null;
+    if(eventType==='cgc'){
+      const levels=[
+        {key:'cgc',code:'CGC',label:'Canine Good Citizen'},
+        {key:'cgcb',code:'CGCB',label:'Canine Good Citizen Bronze'},
+        {key:'cgcs',code:'CGCS',label:'Canine Good Citizen Silver'},
+        {key:'cgcg',code:'CGCG',label:'Canine Good Citizen Gold'},
+        {key:'cgca',code:'CGCA',label:'Canine Good Citizen Advanced'},
+        {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
+      ];
+      const passed=new Set();
+      records.forEach(r=>{
+        if(r.passed!==true)return;
+        const key=cleanLine(r.activity_key).toLowerCase();
+        const cls=cleanLine(r.class).toLowerCase();
+        const lbl=cleanLine(r.score_label).toLowerCase();
+        levels.forEach(level=>{
+          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()) passed.add(level.key);
+        });
+      });
+      cgcLevel=levels.find(level=>!passed.has(level.key))||null;
+      if(!cgcLevel){declined.push({entry:rawEntry,reason:'All CGC levels already earned'});continue;}
+      const i=levels.findIndex(level=>level.key===cgcLevel.key);
+      if(i>0 && !passed.has(levels[i-1].key)){
+        declined.push({entry:rawEntry,reason:'Previous CGC level has not been earned'});continue;
+      }
+    }
+    accepted.push({rawEntry,animal,cgcLevel});
+  }
+  return {accepted,declined};
+}
+
+async function runTestingSystem(rawData,showData){
+  const eventType=showData.specialtyEventType||showData.herdingEventType||'temperament';
+  const {accepted,declined}=await loadTestingEligibilityContext(rawData,showData,eventType);
+  if(!accepted.length){
+    throw new Error('No eligible testing entries. '+declined.map(x=>x.entry+': '+x.reason).join('; '));
+  }
+
+  const lines=[],records=[];
+  const species=cleanLine(showData.species).toLowerCase();
+  const speciesSuffix=species==='dog'?'D':species==='cat'?'C':'H';
+  const heading=eventType==='temperament'?'Temperament Test':eventType==='therapy'?'Therapy Animal Test':'Canine Good Citizen Test';
+  addLine(lines,bold(heading)); addLine(lines,'');
+
+  accepted.forEach(item=>{
+    if(eventType==='temperament'||eventType==='therapy'){
+      const score=Math.floor(Math.random()*201);
+      const passed=score>=110;
+      const code=(eventType==='temperament'?'TT':'TA')+speciesSuffix;
+      const className=eventType==='temperament'?'Temperament Test':'Therapy Animal Test';
+      addLine(lines,item.rawEntry+' - '+score+'/200 - '+(passed?'Pass':'Fail'));
+      activityRecord(records,showData,className,className,{name:item.rawEntry,score,passed},1,passed?'Pass':'Fail');
+      const r=records[records.length-1];
+      r.activity_key=eventType==='temperament'?'temperament_test':'therapy_animal';
+      r.class_name=className; r.points=0; r.score=score; r.max_score=200; r.passed=passed;
+      r.score_label=passed?code:'Fail';
+    }else{
+      const level=item.cgcLevel;
+      const passed=Math.random()<0.5;
+      addLine(lines,item.rawEntry+' - '+level.label+' ('+level.code+') - '+(passed?'Pass':'Fail'));
+      activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
+      const r=records[records.length-1];
+      r.activity_key=level.key; r.class_name=level.label; r.points=0; r.score=null; r.max_score=null; r.passed=passed;
+      r.score_label=passed?level.code:'Fail';
+    }
+  });
+
+  if(declined.length){
+    addLine(lines,''); addLine(lines,bold('Declined Entries'));
+    declined.forEach(x=>addLine(lines,x.entry+' - DECLINED: '+x.reason));
+  }
+  return {lines,records};
+}
+
 function runActivity(rawData, showData) {
   const type = showData.showType;
   const scored = type.includes('scored');
@@ -3105,7 +3269,8 @@ async function randomizeShow() {
     seriesRound: isChampionship
       ? null
       : cleanLine($('seriesRound').value),
-    herdingEventType: $('herdingEventType').value
+    herdingEventType: $('herdingEventType').value,
+    specialtyEventType: $('herdingEventType').value
   };
 
   $('resultsContainer').className = 'hidden';
@@ -3147,6 +3312,8 @@ async function randomizeShow() {
       result = await buildChampionshipQualifiers(showData, false);
     } else if (showData.showType === 'herding-club') {
       result = runHerdingClub(rawData, showData);
+    } else if (/^specialty-testing-system-/.test(showData.showType)) {
+      result = await runTestingSystem(rawData, showData);
     } else if (getShowTypeKind(showData.showType) === 'activity') {
       result = runActivity(rawData, showData);
     } else {
