@@ -1810,7 +1810,10 @@ function updateEnduranceRaceMeta() {
   if (race.distance_km) bits.push(race.distance_km + ' km');
   if (race.conference) bits.push(race.conference);
   if (race.series) bits.push(race.series.replace(/_/g,' '));
-  if (race.requires_endurance_title) bits.push('Endurance title required');
+  const grade = String(race.grade || '').toUpperCase().trim();
+  if (grade === 'II') bits.push('Requires EnN+');
+  if (grade === 'I') bits.push('Requires EnJ+');
+  if (grade === 'III') bits.push('No title required');
 
   meta.textContent = bits.join(' • ');
 }
@@ -3324,10 +3327,25 @@ async function checkEnduranceRaceEligibility(rawData,race){
     const prior=data||[];
     const endurancePoints=standardEndurancePoints(prior);
 
-    // Existing club material uses "EN title required" for graded Stakes.
-    // On the current SS title ladder, EnN is the first standard Endurance title (25 points).
-    if(race.requires_endurance_title && endurancePoints < 25){
-      declined.push({entry:rawEntry,reason:'Requires a standard Endurance title (EnN or higher)'});
+    // Endurance Club Stakes eligibility:
+    // Grade III: no title required
+    // Grade II: EnN or higher (25+ standard Endurance points)
+    // Grade I: EnJ or higher (50+ standard Endurance points)
+    const grade = String(race.grade || '').toUpperCase().trim();
+
+    if (grade === 'II' && endurancePoints < 25) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Grade II Stakes require EnN or higher'
+      });
+      continue;
+    }
+
+    if (grade === 'I' && endurancePoints < 50) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Grade I Stakes require EnJ or higher'
+      });
       continue;
     }
 
