@@ -633,7 +633,10 @@ async function uploadShowRecords() {
         endurance_distance_km: r.endurance_distance_km !== null && r.endurance_distance_km !== undefined ? Number(r.endurance_distance_km) : null,
         endurance_winnings: Number(r.endurance_winnings || 0),
         endurance_season: r.endurance_season || Number(String(uploadedShowDate || '').slice(0,4)) || new Date().getFullYear(),
-        endurance_completed: typeof r.endurance_completed === 'boolean' ? r.endurance_completed : null
+        endurance_completed: typeof r.endurance_completed === 'boolean' ? r.endurance_completed : null,
+        hunting_family: r.hunting_family || null,
+        hunting_specialization: r.hunting_specialization || null,
+        hunting_level: r.hunting_level || null
       };
       let { error } = await supabase.from('show_records').insert(payload);
       if (error && /score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
@@ -1486,6 +1489,143 @@ async function switchRandomizerTab(tabName) {
 // PHASE 1 — GUIDED STANDARD SHOW SETUP
 // =============================================================
 
+
+const SS_HUNTING_FIELD_TESTS = {
+  flushing: {
+    label: 'Flushing',
+    code: 'Fl',
+    specializations: {
+      pheasant: { label:'Pheasant', code:'p' },
+      grouse: { label:'Grouse', code:'g' },
+      woodcock: { label:'Woodcock', code:'w' },
+      quail: { label:'Quail', code:'q' },
+      rabbit: { label:'Rabbit', code:'r' }
+    },
+    categories: ['Search & Quartering','Scent & Quarry Location','Flush Quality','Steadiness','Handler Cooperation']
+  },
+  retrieving: {
+    label: 'Retrieving',
+    code: 'Rt',
+    specializations: {
+      duck: { label:'Duck', code:'d' },
+      goose: { label:'Goose', code:'g' },
+      pheasant: { label:'Pheasant', code:'p' },
+      grouse: { label:'Grouse', code:'g' }
+    },
+    categories: ['Marking','Search & Location','Pick-up / Retrieve','Delivery','Handler Cooperation']
+  },
+  trailing: {
+    label: 'Scent / Trailing',
+    code: 'Tr',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      fox: { label:'Fox', code:'f' },
+      deer: { label:'Deer', code:'d' }
+    },
+    categories: ['Scent Acquisition','Line Accuracy','Persistence','Loss & Reacquisition','Final Indication']
+  },
+  treeing_baying: {
+    label: 'Treeing / Baying',
+    code: 'TB',
+    specializations: {
+      raccoon: { label:'Raccoon', code:'r' },
+      squirrel: { label:'Squirrel', code:'s' },
+      boar: { label:'Boar', code:'bo' },
+      bear: { label:'Bear', code:'br' },
+      cougar: { label:'Cougar', code:'c' }
+    },
+    categories: ['Search & Tracking','Quarry Location','Tree / Bay Work','Persistence','Control']
+  },
+  ratting: {
+    label: 'Ratting',
+    code: 'Rat',
+    specializations: {
+      barn: { label:'Barn', code:'b' },
+      farmyard: { label:'Farmyard', code:'f' },
+      stack_den: { label:'Stack / Den', code:'s' },
+      urban: { label:'Urban', code:'u' }
+    },
+    categories: ['Search Pattern','Scent / Location','Indication','Agility / Problem Solving','Control']
+  },
+  versatile: {
+    label: 'Versatile Hunting',
+    code: 'VH',
+    specializations: {
+      upland: { label:'Upland', code:'u' },
+      waterfowl: { label:'Waterfowl', code:'w' },
+      woodland: { label:'Woodland', code:'f' },
+      mixed_field: { label:'Mixed Field', code:'m' }
+    },
+    categories: ['Search','Scent / Tracking','Point / Flush Work','Retrieve','Handler Cooperation']
+  },
+  coursing: {
+    label: 'Coursing',
+    code: 'Co',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      fox: { label:'Fox', code:'f' },
+      coyote_jackal: { label:'Coyote / Jackal', code:'c' },
+      deer_gazelle: { label:'Deer / Gazelle', code:'d' }
+    },
+    categories: ['Quarry Awareness','Pursuit / Line','Speed','Agility','Endurance']
+  },
+  falconry: {
+    label: 'Falconry',
+    code: 'Fa',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      pheasant: { label:'Pheasant', code:'p' },
+      grouse: { label:'Grouse', code:'g' },
+      quail: { label:'Quail', code:'q' },
+      waterfowl: { label:'Waterfowl', code:'w' }
+    },
+    categories: ['Search','Quarry Location','Flush / Point Work','Bird Cooperation / Steadiness','Handler Cooperation']
+  },
+  pack_hunting: {
+    label: 'Pack Hunting',
+    code: 'PH',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      fox: { label:'Fox', code:'f' },
+      coyote_jackal: { label:'Coyote / Jackal', code:'c' },
+      boar: { label:'Boar', code:'b' },
+      deer: { label:'Deer', code:'d' }
+    },
+    categories: ['Scent / Line Work','Pack Cooperation','Communication','Persistence','Control']
+  }
+};
+
+const SS_HUNTING_LEVELS = {
+  beginners: { label:'Beginners', code:'B', passScore:110, categoryMinimum:15, titleQs:5 },
+  expert: { label:'Expert', code:'E', passScore:130, categoryMinimum:20, titleQs:10, prerequisite:'beginners' },
+  masters: { label:'Masters', code:'M', passScore:150, categoryMinimum:25, titleQs:15, prerequisite:'expert' }
+};
+
+const SS_HUNTING_TERRAINS = [
+  'Open field','Pasture','Woodland','Dense brush','Marsh / wetland',
+  'Rocky ground','Rolling country','Agricultural land'
+];
+const SS_HUNTING_WEATHER = [
+  'Clear and calm','Light rain','Heavy rain','Moderate wind',
+  'Hot and dry','Cold conditions','Recent rainfall'
+];
+const SS_HUNTING_SCENT = [
+  'Fresh strong scent','Moderate scent','Broken scent',
+  'Crossing scent','Old scent','Contaminated scent'
+];
+const SS_HUNTING_DISTRACTIONS = [
+  'Light distraction','Wildlife distraction','Livestock nearby',
+  'Other dogs working nearby','Human activity','Competing scent'
+];
+const SS_HUNTING_QUARRY_DIFFICULTY = [
+  'Predictable quarry movement','Moving quarry','Evasive quarry',
+  'Doubled-back trail','Multiple quarry scents','Difficult location'
+];
+
 const SS_SPECIALTY_SYSTEMS = [
   {
     key: 'herding_club',
@@ -1505,7 +1645,7 @@ const SS_SPECIALTY_SYSTEMS = [
     key: 'hunting_club',
     display_name: 'Hunting Club',
     species: 'dog',
-    active: false,
+    active: true,
     title_system: true
   },
   {
@@ -1710,6 +1850,161 @@ function setChampionshipQualificationOptions() {
 }
 
 
+
+function ensureHuntingControls() {
+  if (!$('herdingPanel') || $('huntingClubControls')) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'huntingClubControls';
+  wrapper.className = 'hidden';
+  wrapper.innerHTML = `
+    <div class="ss-field">
+      <label>Field Test Family</label>
+      <select id="huntingFamily"></select>
+    </div>
+    <div class="ss-field">
+      <label>Quarry / Environment</label>
+      <select id="huntingSpecialization"></select>
+    </div>
+    <div class="ss-field">
+      <label>Test Level</label>
+      <select id="huntingLevel">
+        <option value="beginners">Beginners</option>
+        <option value="expert">Expert</option>
+        <option value="masters">Masters</option>
+      </select>
+      <small id="huntingLevelNote"></small>
+    </div>
+  `;
+
+  $('herdingPanel').appendChild(wrapper);
+
+  $('huntingFamily').addEventListener('change', () => {
+    renderHuntingSpecializations();
+    updateHuntingLevelNote();
+    captureWorkspaceState();
+  });
+  $('huntingSpecialization').addEventListener('change', captureWorkspaceState);
+  $('huntingLevel').addEventListener('change', () => {
+    updateHuntingLevelNote();
+    captureWorkspaceState();
+  });
+}
+
+function renderHuntingControls() {
+  ensureHuntingControls();
+  const wrapper = $('huntingClubControls');
+  if (!wrapper) return;
+
+  const active =
+    activeRandomizerTab === 'specialty' &&
+    $('showFormat')?.value === 'hunting_club';
+
+  wrapper.className = active ? '' : 'hidden';
+  if (!active) return;
+
+  const familySelect = $('huntingFamily');
+  const previous = familySelect.value;
+
+  familySelect.innerHTML = Object.entries(SS_HUNTING_FIELD_TESTS)
+    .map(([key, value]) => `<option value="${key}">${escapeHtml(value.label)}</option>`)
+    .join('');
+
+  if ([...familySelect.options].some(option => option.value === previous)) {
+    familySelect.value = previous;
+  }
+
+  renderHuntingSpecializations();
+  updateHuntingLevelNote();
+}
+
+function renderHuntingSpecializations() {
+  const family = SS_HUNTING_FIELD_TESTS[$('huntingFamily')?.value] || SS_HUNTING_FIELD_TESTS.flushing;
+  const select = $('huntingSpecialization');
+  if (!select) return;
+
+  const previous = select.value;
+  select.innerHTML = Object.entries(family.specializations)
+    .map(([key, value]) => `<option value="${key}">${escapeHtml(value.label)}</option>`)
+    .join('');
+
+  if ([...select.options].some(option => option.value === previous)) {
+    select.value = previous;
+  }
+}
+
+function updateHuntingLevelNote() {
+  const level = SS_HUNTING_LEVELS[$('huntingLevel')?.value] || SS_HUNTING_LEVELS.beginners;
+  const note = $('huntingLevelNote');
+  if (!note) return;
+
+  note.textContent =
+    level.label + ': ' + level.passScore + '/200 overall, minimum ' +
+    level.categoryMinimum + '/40 in every category. ' +
+    level.titleQs + ' qualifications earn the title.';
+}
+
+function relabelSpecialtyPanel(systemKey) {
+  const panel = $('herdingPanel');
+  if (!panel) return;
+
+  const config = {
+    herding_club: {
+      title:'Herding Club',
+      event:'Herding Event',
+      help:'Run Instinct Tests or Stakes Classes using the Herding Club rules.'
+    },
+    testing_system_dog: {
+      title:'Temperament / Therapy / CGC Testing',
+      event:'Test Type',
+      help:'Choose the test type, paste the entries, and run the test.'
+    },
+    testing_system_cat: {
+      title:'Temperament / Therapy Testing',
+      event:'Test Type',
+      help:'Choose the test type, paste the entries, and run the test.'
+    },
+    testing_system_horse: {
+      title:'Temperament / Therapy Testing',
+      event:'Test Type',
+      help:'Choose the test type, paste the entries, and run the test.'
+    },
+    icelandic_horse_club: {
+      title:'Icelandic Horse Club',
+      event:'IHASS Event',
+      help:'Choose Halter, Gaiting, or Breeding Show.'
+    },
+    endurance_club: {
+      title:'Endurance Club',
+      event:'Endurance Event',
+      help:'Choose Prospect Classes, Unrated Races, or a Rated Stakes / Circuit Race.'
+    },
+    hunting_club: {
+      title:'Hunting Club',
+      event:'Hunting Event',
+      help:'Run zero-point working Field Tests with independent quarry / environment specializations.'
+    }
+  }[systemKey];
+
+  if (!config) return;
+
+  const heading = panel.querySelector('h2,h3,.ss-card-title,.ss-setup-title,.ss-section-title');
+  if (heading) heading.textContent = config.title;
+
+  const eventSelect = $('herdingEventType');
+  if (eventSelect) {
+    const label = panel.querySelector('label[for="herdingEventType"]') ||
+      [...panel.querySelectorAll('label')].find(label => /herding event|event type|test type|ihass event|endurance event/i.test(label.textContent || ''));
+    if (label) label.textContent = config.event;
+  }
+
+  const help = [...panel.querySelectorAll('small,.ss-help,.ss-field-help,.ss-note')]
+    .find(node => /herding|instinct|stakes|specialty event|choose.*event/i.test(node.textContent || ''));
+  if (help && !help.closest('#enduranceClubControls') && !help.closest('#huntingClubControls')) {
+    help.textContent = config.help;
+  }
+}
+
 function ensureEnduranceControls() {
   if (!$('herdingPanel') || $('enduranceClubControls')) return;
 
@@ -1843,7 +2138,10 @@ function updatePhase1UI() {
   const isEndurance =
     activeRandomizerTab === 'specialty' &&
     selectedSpecialtySystem === 'endurance_club';
-  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance;
+  const isHunting =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'hunting_club';
+  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance || isHunting;
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
@@ -1895,6 +2193,10 @@ function updatePhase1UI() {
       if ([...select.options].some(option => option.value === current)) select.value = current;
       ensureEnduranceControls();
       renderEnduranceControls();
+    } else if (isHunting) {
+      select.innerHTML = '<option value="field_test">Hunting Field Test</option>';
+      ensureHuntingControls();
+      renderHuntingControls();
     }
   }
 
@@ -1906,6 +2208,8 @@ function updatePhase1UI() {
 
   $('activityOptionsPanel').className = isActivity ? 'ss-setup-card' : 'hidden';
   $('herdingPanel').className = isSpecialtyRunner ? 'ss-setup-card' : 'hidden';
+  if (isSpecialtyRunner) relabelSpecialtyPanel(selectedSpecialtySystem);
+  if (isHunting) renderHuntingControls();
   $('championshipModeField').className = isSpecialtyRunner ? 'hidden' : 'ss-field';
   $('championshipPanel').className = isChampionship ? 'ss-championship-panel' : 'hidden';
   $('normalSeriesFields').className = isChampionship ? 'hidden' : 'ss-series-grid';
@@ -3475,6 +3779,253 @@ async function runEnduranceClub(rawData,showData){
   throw new Error('Unknown Endurance Club event type.');
 }
 
+
+function huntingPick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function huntingLevelDifficulty(levelKey) {
+  return levelKey === 'masters' ? 2 : levelKey === 'expert' ? 1 : 0;
+}
+
+function huntingScenario(levelKey) {
+  const difficulty = huntingLevelDifficulty(levelKey);
+
+  const terrain = huntingPick(SS_HUNTING_TERRAINS);
+  const weather = huntingPick(SS_HUNTING_WEATHER);
+
+  const scentPool = difficulty === 0
+    ? SS_HUNTING_SCENT.slice(0,3)
+    : difficulty === 1
+      ? SS_HUNTING_SCENT.slice(1,5)
+      : SS_HUNTING_SCENT.slice(2);
+
+  const distractionPool = difficulty === 0
+    ? SS_HUNTING_DISTRACTIONS.slice(0,2)
+    : difficulty === 1
+      ? SS_HUNTING_DISTRACTIONS.slice(0,4)
+      : SS_HUNTING_DISTRACTIONS;
+
+  const quarryPool = difficulty === 0
+    ? SS_HUNTING_QUARRY_DIFFICULTY.slice(0,2)
+    : difficulty === 1
+      ? SS_HUNTING_QUARRY_DIFFICULTY.slice(1,4)
+      : SS_HUNTING_QUARRY_DIFFICULTY.slice(2);
+
+  return {
+    terrain,
+    weather,
+    scent: huntingPick(scentPool),
+    distraction: huntingPick(distractionPool),
+    quarry: huntingPick(quarryPool)
+  };
+}
+
+function huntingConditionModifier(scenario, category, levelKey) {
+  let mod = 0;
+  const text = (scenario.terrain + ' ' + scenario.weather + ' ' + scenario.scent + ' ' +
+    scenario.distraction + ' ' + scenario.quarry + ' ' + category).toLowerCase();
+
+  if (/fresh strong scent|recent rainfall/.test(text) && /scent|search|location|tracking|line/.test(text)) mod += 2;
+  if (/old scent|contaminated scent|crossing scent|broken scent/.test(text) && /scent|search|location|tracking|line/.test(text)) mod -= 3;
+  if (/heavy rain|moderate wind/.test(text) && /scent|marking|location/.test(text)) mod -= 2;
+  if (/dense brush|rocky ground|marsh/.test(text) && /speed|agility|pursuit|retrieve/.test(text)) mod -= 2;
+  if (/open field|pasture/.test(text) && /speed|pursuit|marking|search/.test(text)) mod += 1;
+  if (/wildlife distraction|other dogs|competing scent|human activity|livestock/.test(text) && /control|cooperation|steadiness|persistence/.test(text)) mod -= 2;
+  if (levelKey === 'masters') mod -= 1;
+
+  return mod;
+}
+
+function huntingCategoryScore(levelKey, scenario, category) {
+  const ranges = {
+    beginners: [18, 39],
+    expert: [20, 39],
+    masters: [22, 40]
+  };
+  const [min,max] = ranges[levelKey] || ranges.beginners;
+  const base = min + Math.floor(Math.random() * (max - min + 1));
+  return Math.max(0, Math.min(40, base + huntingConditionModifier(scenario, category, levelKey)));
+}
+
+function huntingDqReason(familyKey, levelKey) {
+  const generic = [
+    'Loss of handler control',
+    'Unsafe working behaviour',
+    'Abandoned the search',
+    'Failure to engage the working scenario'
+  ];
+
+  const family = {
+    flushing: ['Broke steadiness and could not be recovered'],
+    retrieving: ['Refused the retrieve after locating quarry'],
+    trailing: ['Abandoned the scent line completely'],
+    treeing_baying: ['Failed to maintain safe bay / tree work'],
+    ratting: ['Unsafe loss of control in the working area'],
+    versatile: ['Failed multiple required phases of the test'],
+    coursing: ['Broke off pursuit and failed to re-engage'],
+    falconry: ['Unsafe interference with the working bird'],
+    pack_hunting: ['Unsafe pack interference / loss of pack control']
+  }[familyKey] || [];
+
+  const chance = levelKey === 'masters' ? 0.07 : levelKey === 'expert' ? 0.05 : 0.03;
+  if (Math.random() >= chance) return null;
+  return huntingPick(generic.concat(family));
+}
+
+async function huntingPriorQualifications(supabase, animalId, family, specialization) {
+  const { data, error } = await supabase
+    .from('show_records')
+    .select('hunting_family,hunting_specialization,hunting_level,passed,association_key')
+    .eq('animal_id', animalId)
+    .eq('association_key', 'hunting_club')
+    .eq('hunting_family', family)
+    .eq('hunting_specialization', specialization);
+
+  if (error) throw new Error('Could not check Hunting Club title eligibility: ' + error.message);
+
+  const counts = { beginners:0, expert:0, masters:0 };
+  (data || []).forEach(record => {
+    if (record.passed === true && counts[record.hunting_level] !== undefined) {
+      counts[record.hunting_level]++;
+    }
+  });
+  return counts;
+}
+
+async function runHuntingClub(rawData, showData) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready.');
+
+  const familyKey = $('huntingFamily')?.value || 'flushing';
+  const specializationKey = $('huntingSpecialization')?.value || 'pheasant';
+  const levelKey = $('huntingLevel')?.value || 'beginners';
+
+  const family = SS_HUNTING_FIELD_TESTS[familyKey];
+  const specialization = family?.specializations?.[specializationKey];
+  const level = SS_HUNTING_LEVELS[levelKey];
+
+  if (!family || !specialization || !level) {
+    throw new Error('Choose a Hunting Field Test family, specialization, and level.');
+  }
+
+  const animalMap = await loadAnimalsMap(supabase);
+  const entries = herdingEntryLines(rawData);
+
+  if (!entries.length) throw new Error('No Hunting Field Test entries found.');
+
+  const lines = [];
+  const records = [];
+  const declined = [];
+
+  addLine(lines, bold('Hunting Club Field Test'));
+  addLine(lines, bold(level.label + ' ' + family.label + ' — ' + specialization.label));
+  addLine(lines, 'Qualification: ' + level.passScore + '/200 overall • minimum ' +
+    level.categoryMinimum + '/40 in every category');
+  addLine(lines, '');
+
+  for (const rawEntry of entries) {
+    const match = findAnimal(rawEntry, animalMap);
+
+    if (match.status !== 'ok') {
+      declined.push({
+        entry: rawEntry,
+        reason: match.status === 'ambiguous'
+          ? 'Duplicate exact registry name'
+          : 'Exact registry animal not found'
+      });
+      continue;
+    }
+
+    const animal = match.animal;
+
+    if (cleanLine(animal.species).toLowerCase() !== 'dog') {
+      declined.push({ entry: rawEntry, reason:'Hunting Club Field Tests are dogs only' });
+      continue;
+    }
+
+    const prior = await huntingPriorQualifications(
+      supabase, animal.id, familyKey, specializationKey
+    );
+
+    if (levelKey === 'expert' && prior.beginners < SS_HUNTING_LEVELS.beginners.titleQs) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Requires the Beginners ' + family.label + ' — ' + specialization.label + ' title'
+      });
+      continue;
+    }
+
+    if (levelKey === 'masters' && prior.expert < SS_HUNTING_LEVELS.expert.titleQs) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Requires the Expert ' + family.label + ' — ' + specialization.label + ' title'
+      });
+      continue;
+    }
+
+    const scenario = huntingScenario(levelKey);
+    const scores = family.categories.map(category => ({
+      category,
+      score: huntingCategoryScore(levelKey, scenario, category)
+    }));
+
+    const total = scores.reduce((sum,row) => sum + row.score, 0);
+    const categoryPass = scores.every(row => row.score >= level.categoryMinimum);
+    const dqReason = huntingDqReason(familyKey, levelKey);
+    const qualified = !dqReason && total >= level.passScore && categoryPass;
+
+    addLine(lines, bold(rawEntry));
+    addLine(lines,
+      'Scenario: ' + scenario.terrain + ' • ' + scenario.weather + ' • ' +
+      scenario.scent + ' • ' + scenario.distraction + ' • ' + scenario.quarry
+    );
+    scores.forEach(row => addLine(lines, row.category + ': ' + row.score + '/40'));
+
+    if (dqReason) {
+      addLine(lines, bold(total + '/200 — DQ'));
+      addLine(lines, 'DQ: ' + dqReason);
+    } else {
+      addLine(lines, bold(total + '/200 — ' + (qualified ? 'QUALIFIED' : 'NOT QUALIFIED')));
+      if (!categoryPass) {
+        const failed = scores
+          .filter(row => row.score < level.categoryMinimum)
+          .map(row => row.category)
+          .join(', ');
+        addLine(lines, 'Minimum category requirement not met: ' + failed);
+      }
+    }
+    addLine(lines, '');
+
+    records.push({
+      show_name: showData.showName,
+      show_type: 'activity',
+      show_scope: 'association',
+      association_key: 'hunting_club',
+      association_event_type: 'field_test',
+      activity_key: null,
+      class_name: 'Hunting Field Test - ' + family.label + ' - ' + specialization.label + ' - ' + level.label,
+      placement: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
+      animal_name: rawEntry,
+      points: 0,
+      score: total,
+      max_score: 200,
+      passed: qualified,
+      score_label: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
+      hunting_family: familyKey,
+      hunting_specialization: specializationKey,
+      hunting_level: levelKey
+    });
+  }
+
+  if (declined.length) {
+    addLine(lines, bold('Declined Entries'));
+    declined.forEach(item => addLine(lines, item.entry + ' — DECLINED: ' + item.reason));
+  }
+
+  return { lines, records };
+}
+
 function tagAssociationRecords(result, associationKey, eventType) {
   const tagged = result || { lines: [], records: [] };
   (tagged.records || []).forEach(record => {
@@ -3920,10 +4471,12 @@ async function randomizeShow() {
         ? 'ihass'
         : activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'endurance_club'
           ? 'endurance_club'
-          : null,
+          : activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'hunting_club'
+            ? 'hunting_club'
+            : null,
     associationEventType:
       activeRandomizerTab === 'specialty' &&
-      ['icelandic_horse_club','endurance_club'].includes($('showFormat')?.value)
+      ['icelandic_horse_club','endurance_club','hunting_club'].includes($('showFormat')?.value)
         ? $('herdingEventType').value
         : null
   };
@@ -3973,6 +4526,8 @@ async function randomizeShow() {
       result = runIcelandicClub(rawData, showData);
     } else if (showData.showType === 'specialty-endurance-club') {
       result = await runEnduranceClub(rawData, showData);
+    } else if (showData.showType === 'specialty-hunting-club') {
+      result = await runHuntingClub(rawData, showData);
     } else if (getShowTypeKind(showData.showType, showData) === 'activity') {
       result = runActivity(rawData, showData);
     } else {
