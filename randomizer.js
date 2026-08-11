@@ -125,6 +125,10 @@ function addLine(lines, text) { if (text === undefined || text === null) lines.p
 function bold(text) { return '[b]' + text + '[/b]'; }
 function placementLabel(i) { return String(i); }
 function getShowTypeKind(showType, showData) {
+  if (showData && showData.associationKey === 'endurance_club') {
+    return showData.associationEventType === 'prospect' ? 'conformation' : 'activity';
+  }
+
   if (showData && showData.associationEventType === 'gaiting') return 'activity';
   if (showData && showData.associationEventType === 'breeding') return 'conformation';
   if (showData && showData.associationEventType === 'halter') return 'conformation';
@@ -618,8 +622,18 @@ async function uploadShowRecords() {
         passed: typeof r.passed === 'boolean' ? r.passed : null,
         score_label: r.score_label || null,
         activity_key: r.activity_key || null,
-        association_key: r.association_key || showData.associationKey || null,
-        association_event_type: r.association_event_type || showData.associationEventType || null
+        association_key: r.association_key || savedShowData.associationKey || null,
+        association_event_type: r.association_event_type || savedShowData.associationEventType || null,
+        endurance_race_key: r.endurance_race_key || null,
+        endurance_race_name: r.endurance_race_name || null,
+        endurance_grade: r.endurance_grade || null,
+        endurance_conference: r.endurance_conference || null,
+        endurance_circuit: r.endurance_circuit || null,
+        endurance_series: r.endurance_series || null,
+        endurance_distance_km: r.endurance_distance_km !== null && r.endurance_distance_km !== undefined ? Number(r.endurance_distance_km) : null,
+        endurance_winnings: Number(r.endurance_winnings || 0),
+        endurance_season: r.endurance_season || Number(String(uploadedShowDate || '').slice(0,4)) || new Date().getFullYear(),
+        endurance_completed: typeof r.endurance_completed === 'boolean' ? r.endurance_completed : null
       };
       let { error } = await supabase.from('show_records').insert(payload);
       if (error && /score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
@@ -1454,6 +1468,7 @@ async function restoreWorkspaceState(tabName) {
 
   updatePhase1UI();
   await restoreChampionshipSelections(state);
+  if (isEndurance) renderEnduranceControls();
   updateSetupSummary();
 }
 
@@ -1525,7 +1540,7 @@ const SS_SPECIALTY_SYSTEMS = [
     key: 'endurance_club',
     display_name: 'Endurance Club',
     species: 'horse',
-    active: false,
+    active: true,
     title_system: true
   }
 ];
@@ -1573,6 +1588,8 @@ function renderSpecialtySystemOptions() {
     $('showFormat').selectedIndex = 0;
   }
 }
+
+const SS_ENDURANCE_RACES = [{"key":"northern_circuit_polar_trek","name":"Polar Trek","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Host Dependent","distance_km":850,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_highland_challenge","name":"Highland Challenge","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":155,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_viking_cup","name":"Viking Cup","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":165,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_fjord_expedition","name":"Fjord Expedition","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_siberian_plate","name":"Siberian Plate","circuit":"Northern Circuit","series":null,"grade":"I","conference":"Eastern","distance_km":1500,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_baltic_challenge","name":"Baltic Challenge","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":350,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_celtic_crossing","name":"Celtic Crossing","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_saudi_cup","name":"Saudi Cup","circuit":"Desert Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_marathon_des_sables","name":"Marathon des Sables","circuit":"Desert Circuit","series":null,"grade":"III","conference":"Western","distance_km":260,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_atlas_challenge","name":"Atlas Challenge","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Western","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_nile_expedition","name":"Nile Expedition","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":850,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_dubai_crown_prince_conference","name":"Dubai Crown Prince Conference","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":150,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_karakum_crossing","name":"Karakum Crossing","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_wadi_rum_challenge","name":"Wadi Rum Challenge","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_mongol_derby","name":"Mongol Derby","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_turkmen_s_plate","name":"Turkmen’s Plate","circuit":"Steppe Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":250,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_silk_road_classic","name":"Silk Road Classic","circuit":"Steppe Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_eurasia_challenge","name":"Eurasia Challenge","circuit":"Steppe Circuit","series":null,"grade":"I","conference":"Both","distance_km":4000,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_dragon_trail","name":"Dragon Trail","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_altai_eagle_ride","name":"Altai Eagle Ride","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_kazakh_eagle_cup","name":"Kazakh Eagle Cup","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_new_year_s_cup","name":"New Year’s Cup","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":300,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_tevis_cup","name":"Tevis Cup","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":100,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_continental_divide","name":"Continental Divide","circuit":"North American Frontier Circuit","series":null,"grade":"I","conference":"Western","distance_km":5000,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_yukon_gold_rush","name":"Yukon Gold Rush","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":950,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_route_66_classic","name":"Route 66 Classic","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_maya_mountain_challenge","name":"Maya Mountain Challenge","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_volc_n_trail_classic","name":"Volcán Trail Classic","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_gaucho_derby","name":"Gaucho Derby","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_pampas_classic","name":"Pampas Classic","circuit":"South American Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_andes_crossing","name":"Andes Crossing","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_amazon_basin_trek","name":"Amazon Basin Trek","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_atacama_crossing","name":"Atacama Crossing","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_inca_trail_endurance","name":"Inca Trail Endurance","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_pantanal_expedition","name":"Pantanal Expedition","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_outback_challenge","name":"Outback Challenge","circuit":"Oceania Circuit","series":null,"grade":"I","conference":"Eastern","distance_km":2600,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_great_barrier_trek","name":"Great Barrier Trek","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_tasman_trail_classic","name":"Tasman Trail Classic","circuit":"Oceania Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_southern_alps_ride","name":"Southern Alps Ride","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_coral_coast_challenge","name":"Coral Coast Challenge","circuit":"Oceania Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":350,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_kimberley_expedition","name":"Kimberley Expedition","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_southern_ocean_run","name":"Southern Ocean Run","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_great_rift_challenge","name":"Great Rift Challenge","circuit":"African Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_serengeti_trek","name":"Serengeti Trek","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_kalahari_classic","name":"Kalahari Classic","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_okavango_challenge","name":"Okavango Challenge","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_cape_frontier_ride","name":"Cape Frontier Ride","circuit":"African Circuit","series":null,"grade":"II","conference":"Host Dependent","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_drakensberg_traverse","name":"Drakensberg Traverse","circuit":"African Circuit","series":null,"grade":"I","conference":"Host Dependent","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_kilimanjaro_challenge","name":"Kilimanjaro Challenge","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_aegean_odyssey","name":"Aegean Odyssey","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_adriatic_classic","name":"Adriatic Classic","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_sicilian_volcano_run","name":"Sicilian Volcano Run","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Western","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_iberian_coast_challenge","name":"Iberian Coast Challenge","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_cyprus_crossing","name":"Cyprus Crossing","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Host Dependent","distance_km":300,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_amalfi_coast_classic","name":"Amalfi Coast Classic","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_dalmatian_coast_ride","name":"Dalmatian Coast Ride","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_mekong_expedition","name":"Mekong Expedition","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_emerald_jungle_challenge","name":"Emerald Jungle Challenge","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_borneo_rainforest_run","name":"Borneo Rainforest Run","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_island_kingdom_classic","name":"Island Kingdom Classic","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_dragon_s_peninsula_trek","name":"Dragon’s Peninsula Trek","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_angkor_heritage_ride","name":"Angkor Heritage Ride","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_java_volcano_challenge","name":"Java Volcano Challenge","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_ruby","name":"The Ruby","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_opal","name":"The Opal","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_emerald","name":"The Emerald","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_sapphire","name":"The Sapphire","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_pearl","name":"The Pearl","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":1100,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_diamond","name":"The Diamond","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_crystal_tour_the_quartz","name":"The Quartz","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_jade","name":"The Jade","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_amber","name":"The Amber","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_garnet","name":"The Garnet","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_onyx","name":"The Onyx","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_topaz","name":"The Topaz","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_tour_amazing_race","name":"The Amazing Race","circuit":"World Tour","series":"amazing_race","grade":null,"conference":"Host Dependent","distance_km":1200,"event_kind":"team","requires_endurance_title":false},{"key":"world_the_western_finals","name":"The Western Finals","circuit":"World Tour","series":"conference_final","grade":"INV","conference":"Western","distance_km":1000,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Winner of any Western stakes race"},{"key":"world_the_eastern_challenge","name":"The Eastern Challenge","circuit":"World Tour","series":"conference_final","grade":"INV","conference":"Eastern","distance_km":1000,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Winner of any Eastern stakes race"},{"key":"world_the_invitational","name":"The Invitational","circuit":"World Tour","series":"invitational","grade":"INV","conference":"International","distance_km":1500,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Grade I/II stakes winner, top three in either final, ENO title, or full series winner"}];
 
 const SS_PHASE1_FORMATS = {
   conformation: [
@@ -1692,6 +1709,118 @@ function setChampionshipQualificationOptions() {
   }
 }
 
+
+function ensureEnduranceControls() {
+  if (!$('herdingPanel') || $('enduranceClubControls')) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'enduranceClubControls';
+  wrapper.className = 'hidden';
+  wrapper.innerHTML = `
+    <div class="ss-field" id="enduranceRaceField">
+      <label>Endurance Club Race</label>
+      <select id="enduranceRaceKey"></select>
+      <small id="enduranceRaceMeta">Select a rated race.</small>
+    </div>
+
+    <div class="ss-field" id="enduranceUnratedDistanceField">
+      <label>Unrated Race Distance (km)</label>
+      <input type="number" id="enduranceUnratedDistance" min="0" step="1" value="100">
+      <small>Used for cumulative Endurance Club distance titles.</small>
+    </div>
+
+    <div class="ss-field">
+      <label>Prize Money by Placement</label>
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(80px,1fr));gap:8px;">
+        ${[1,2,3,4,5].map(place => `
+          <label style="font-size:11px;">${place}${place===1?'st':place===2?'nd':place===3?'rd':'th'}
+            <input type="number" id="endurancePrize${place}" min="0" step="1" value="0">
+          </label>
+        `).join('')}
+      </div>
+      <small>Enter the actual money won for each placing. These amounts are stored on each horse's record and are the only money counted toward EdHE / EdSpH / EdHOFE.</small>
+    </div>
+  `;
+
+  $('herdingPanel').appendChild(wrapper);
+
+  $('enduranceRaceKey').addEventListener('change', updateEnduranceRaceMeta);
+  $('herdingEventType').addEventListener('change', renderEnduranceControls);
+}
+
+function renderEnduranceControls() {
+  ensureEnduranceControls();
+
+  const wrapper = $('enduranceClubControls');
+  if (!wrapper) return;
+
+  const active =
+    activeRandomizerTab === 'specialty' &&
+    $('showFormat')?.value === 'endurance_club';
+
+  wrapper.className = active ? '' : 'hidden';
+  if (!active) return;
+
+  const mode = $('herdingEventType')?.value || 'prospect';
+  $('enduranceRaceField').className = mode === 'rated' ? 'ss-field' : 'hidden';
+  $('enduranceUnratedDistanceField').className = mode === 'unrated' ? 'ss-field' : 'hidden';
+
+  const raceSelect = $('enduranceRaceKey');
+  if (raceSelect && mode === 'rated') {
+    const previous = raceSelect.value;
+    const groups = {};
+
+    SS_ENDURANCE_RACES.forEach(race => {
+      const group = race.circuit || 'Other';
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(race);
+    });
+
+    raceSelect.innerHTML = Object.keys(groups).map(group => {
+      const options = groups[group].map(race =>
+        '<option value="' + escapeHtml(race.key) + '">' +
+        escapeHtml(race.name) +
+        (race.grade ? ' — Grade ' + escapeHtml(race.grade) : '') +
+        '</option>'
+      ).join('');
+
+      return '<optgroup label="' + escapeHtml(group) + '">' + options + '</optgroup>';
+    }).join('');
+
+    if ([...raceSelect.options].some(option => option.value === previous)) {
+      raceSelect.value = previous;
+    }
+
+    updateEnduranceRaceMeta();
+  }
+}
+
+function updateEnduranceRaceMeta() {
+  const race = SS_ENDURANCE_RACES.find(row => row.key === $('enduranceRaceKey')?.value);
+  const meta = $('enduranceRaceMeta');
+  if (!meta) return;
+
+  if (!race) {
+    meta.textContent = 'Select a rated race.';
+    return;
+  }
+
+  const bits = [];
+  if (race.grade) bits.push('Grade ' + race.grade);
+  if (race.distance_km) bits.push(race.distance_km + ' km');
+  if (race.conference) bits.push(race.conference);
+  if (race.series) bits.push(race.series.replace(/_/g,' '));
+  if (race.requires_endurance_title) bits.push('Endurance title required');
+
+  meta.textContent = bits.join(' • ');
+}
+
+function endurancePrizeForPlace(place) {
+  const el = $('endurancePrize' + place);
+  const amount = Number(el ? el.value : 0);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
 function updatePhase1UI() {
   const category = selectedEventCategory();
   const isActivity = activeRandomizerTab === 'activities';
@@ -1708,7 +1837,10 @@ function updatePhase1UI() {
   const isIcelandic =
     activeRandomizerTab === 'specialty' &&
     selectedSpecialtySystem === 'icelandic_horse_club';
-  const isSpecialtyRunner = isHerding || isTesting || isIcelandic;
+  const isEndurance =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'endurance_club';
+  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance;
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
@@ -1749,6 +1881,17 @@ function updatePhase1UI() {
         '<option value="' + value + '">' + label + '</option>'
       ).join('');
       if ([...select.options].some(option => option.value === current)) select.value = current;
+    } else if (isEndurance) {
+      select.innerHTML = [
+        ['prospect', 'Prospect Classes'],
+        ['unrated', 'Unrated Stakes Races'],
+        ['rated', 'Rated Stakes / Circuit Race']
+      ].map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+      ensureEnduranceControls();
+      renderEnduranceControls();
     }
   }
 
@@ -3001,6 +3144,319 @@ function runHerdingClub(rawData, showData) {
 
 
 
+
+function parseEnduranceSimpleClasses(rawData) {
+  const lines = String(rawData || '')
+    .replace(/\r\n?/g,'\n')
+    .split('\n')
+    .map(cleanLine);
+
+  const classes = [];
+  let current = null;
+
+  lines.forEach(line => {
+    if (!line) return;
+
+    if (line.includes(' - ')) {
+      if (!current) {
+        current = { name:'Endurance', entries:[] };
+        classes.push(current);
+      }
+      current.entries.push(line);
+      return;
+    }
+
+    current = { name: line, entries: [] };
+    classes.push(current);
+  });
+
+  return classes.filter(cls => cls.entries.length);
+}
+
+function enduranceRecordBase(showData, horseName, className, place, points) {
+  return {
+    show_name: showData.showName,
+    show_type: 'activity',
+    show_scope: 'association',
+    association_key: 'endurance_club',
+    association_event_type: showData.associationEventType,
+    activity_key: 'endurance',
+    class_name: className,
+    placement: String(place),
+    animal_name: horseName,
+    points: Number(points || 0),
+    score: null,
+    max_score: null,
+    passed: null,
+    score_label: null,
+    endurance_completed: true,
+    endurance_season: new Date().getFullYear()
+  };
+}
+
+function runEnduranceProspects(rawData, showData) {
+  const classes = parseEnduranceSimpleClasses(rawData);
+  if (!classes.length) throw new Error('No Prospect classes found.');
+
+  const lines = [];
+  const records = [];
+
+  addLine(lines,bold('Endurance Club Prospect Classes'));
+  addLine(lines,'');
+
+  classes.forEach((cls, ci) => {
+    if (ci) addLine(lines,'');
+    addLine(lines,bold(cls.name));
+
+    shuffle(cls.entries.slice()).forEach((horse,index) => {
+      const place=index+1;
+      const points=SS_CONFIG.placementPoints[place] || 0;
+      addLine(lines, placementLabel(place) + ' ' + horse);
+
+      records.push({
+        show_name: showData.showName,
+        show_type: 'conformation',
+        show_scope: 'association',
+        association_key: 'endurance_club',
+        association_event_type: 'prospect',
+        activity_key: null,
+        class_name: 'Endurance Prospect - ' + cls.name,
+        placement: String(place),
+        animal_name: horse,
+        points,
+        endurance_completed: false,
+        endurance_winnings: 0,
+        endurance_season: new Date().getFullYear()
+      });
+    });
+  });
+
+  return {lines,records};
+}
+
+function runEnduranceUnrated(rawData,showData){
+  const classes=parseEnduranceSimpleClasses(rawData);
+  if(!classes.length) throw new Error('No unrated Endurance races found.');
+
+  const lines=[],records=[];
+  const fallbackDistance=Math.max(0,Number($('enduranceUnratedDistance')?.value||0));
+
+  addLine(lines,bold('Endurance Club — Unrated Races'));
+  addLine(lines,'');
+
+  classes.forEach((cls,ci)=>{
+    if(ci) addLine(lines,'');
+    addLine(lines,bold(cls.name));
+
+    const classDistanceMatch=cls.name.match(/(\d[\d,]*)\s*km/i);
+    const distance=classDistanceMatch
+      ? Number(classDistanceMatch[1].replace(/,/g,''))
+      : fallbackDistance;
+
+    shuffle(cls.entries.slice()).forEach((horse,index)=>{
+      const place=index+1;
+      const points=SS_CONFIG.placementPoints[place]||0;
+      const winnings=endurancePrizeForPlace(place);
+
+      addLine(lines,
+        placementLabel(place)+' '+horse+
+        (winnings ? ' - $'+winnings.toLocaleString() : '')
+      );
+
+      const record=enduranceRecordBase(showData,horse,'Endurance - '+cls.name,place,points);
+      Object.assign(record,{
+        association_event_type:'unrated',
+        endurance_race_key:'unrated_'+cleanLine(cls.name).toLowerCase().replace(/[^a-z0-9]+/g,'_'),
+        endurance_race_name:cls.name,
+        endurance_grade:null,
+        endurance_conference:null,
+        endurance_circuit:null,
+        endurance_series:null,
+        endurance_distance_km:distance,
+        endurance_winnings:winnings
+      });
+      records.push(record);
+    });
+  });
+
+  return {lines,records};
+}
+
+function standardEndurancePoints(records){
+  return (records||[])
+    .filter(r=>cleanLine(r.activity_key).toLowerCase()==='endurance')
+    .reduce((sum,r)=>sum+Number(r.points||r.calculated_points||0),0);
+}
+
+function passedPlacement(r){
+  const m=String(r.placement||'').match(/\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+async function checkEnduranceRaceEligibility(rawData,race){
+  const supabase=getSupabase();
+  if(!supabase) throw new Error('Supabase is not ready.');
+
+  const animalMap=await loadAnimalsMap(supabase);
+  const entries=herdingEntryLines(rawData);
+  const accepted=[],declined=[];
+
+  for(const rawEntry of entries){
+    const match=findAnimal(rawEntry,animalMap);
+    if(match.status!=='ok'){
+      declined.push({entry:rawEntry,reason:match.status==='ambiguous'?'Duplicate exact registry name':'Exact registry animal not found'});
+      continue;
+    }
+
+    const animal=match.animal;
+    if(cleanLine(animal.species).toLowerCase()!=='horse'){
+      declined.push({entry:rawEntry,reason:'Endurance Club is horses only'});
+      continue;
+    }
+
+    const {data,error}=await supabase
+      .from('show_records')
+      .select('*')
+      .eq('animal_id',animal.id);
+
+    if(error) throw new Error('Eligibility check failed for '+animal.name+': '+error.message);
+
+    const prior=data||[];
+    const endurancePoints=standardEndurancePoints(prior);
+
+    // Existing club material uses "EN title required" for graded Stakes.
+    // On the current SS title ladder, EnN is the first standard Endurance title (25 points).
+    if(race.requires_endurance_title && endurancePoints < 25){
+      declined.push({entry:rawEntry,reason:'Requires a standard Endurance title (EnN or higher)'});
+      continue;
+    }
+
+    if(race.key==='world_the_western_finals'){
+      const qualified=prior.some(r =>
+        cleanLine(r.association_key).toLowerCase()==='endurance_club' &&
+        cleanLine(r.endurance_conference).toLowerCase() === 'western' &&
+        passedPlacement(r)===1 &&
+        r.endurance_grade
+      );
+      if(!qualified){
+        declined.push({entry:rawEntry,reason:'Requires a win in a Western Endurance Club stakes race'});
+        continue;
+      }
+    }
+
+    if(race.key==='world_the_eastern_challenge'){
+      const qualified=prior.some(r =>
+        cleanLine(r.association_key).toLowerCase()==='endurance_club' &&
+        ['eastern','both'].includes(cleanLine(r.endurance_conference).toLowerCase()) &&
+        passedPlacement(r)===1 &&
+        r.endurance_grade
+      );
+      if(!qualified){
+        declined.push({entry:rawEntry,reason:'Requires a win in an Eastern Endurance Club stakes race'});
+        continue;
+      }
+    }
+
+    if(race.key==='world_the_invitational'){
+      const gradeWinner=prior.some(r =>
+        cleanLine(r.association_key).toLowerCase()==='endurance_club' &&
+        ['i','ii'].includes(cleanLine(r.endurance_grade).toLowerCase()) &&
+        passedPlacement(r)===1
+      );
+
+      const finalTopThree=prior.some(r =>
+        cleanLine(r.endurance_series).toLowerCase()==='conference_final' &&
+        (passedPlacement(r)||99)<=3
+      );
+
+      const enOpen=endurancePoints>=125;
+
+      const seriesWins={gemstone:new Set(),crystal:new Set()};
+      prior.forEach(r=>{
+        if(passedPlacement(r)!==1)return;
+        const s=cleanLine(r.endurance_series).toLowerCase();
+        if(seriesWins[s])seriesWins[s].add(r.endurance_race_key);
+      });
+
+      const fullSeries=seriesWins.gemstone.size>=6 || seriesWins.crystal.size>=6;
+
+      if(!(gradeWinner||finalTopThree||enOpen||fullSeries)){
+        declined.push({entry:rawEntry,reason:'Invitational requires a Grade I/II stakes win, top 3 in a conference final, EnO, or a full World Tour series win'});
+        continue;
+      }
+    }
+
+    accepted.push({rawEntry,animal});
+  }
+
+  return {accepted,declined};
+}
+
+async function runEnduranceRated(rawData,showData){
+  const race=SS_ENDURANCE_RACES.find(row=>row.key===$('enduranceRaceKey')?.value);
+  if(!race) throw new Error('Select an Endurance Club race.');
+
+  const {accepted,declined}=await checkEnduranceRaceEligibility(rawData,race);
+  if(!accepted.length){
+    throw new Error('No eligible entries. '+declined.map(x=>x.entry+': '+x.reason).join('; '));
+  }
+
+  const lines=[],records=[];
+  addLine(lines,bold(race.name));
+  addLine(lines,
+    [
+      race.grade ? 'Grade '+race.grade : null,
+      race.distance_km ? race.distance_km+' km' : null,
+      race.conference || null,
+      race.circuit || null
+    ].filter(Boolean).join(' • ')
+  );
+  addLine(lines,'');
+
+  const ranked=shuffle(accepted.slice());
+
+  ranked.forEach((item,index)=>{
+    const place=index+1;
+    const points=SS_CONFIG.placementPoints[place]||0;
+    const winnings=endurancePrizeForPlace(place);
+
+    addLine(lines,
+      placementLabel(place)+' '+item.rawEntry+
+      (winnings ? ' - $'+winnings.toLocaleString() : '')
+    );
+
+    const record=enduranceRecordBase(showData,item.rawEntry,'Endurance - '+race.name,place,points);
+    Object.assign(record,{
+      association_event_type:'rated',
+      endurance_race_key:race.key,
+      endurance_race_name:race.name,
+      endurance_grade:race.grade||null,
+      endurance_conference:race.conference||null,
+      endurance_circuit:race.circuit||null,
+      endurance_series:race.series||null,
+      endurance_distance_km:Number(race.distance_km||0),
+      endurance_winnings:winnings
+    });
+    records.push(record);
+  });
+
+  if(declined.length){
+    addLine(lines,'');
+    addLine(lines,bold('Declined Entries'));
+    declined.forEach(item=>addLine(lines,item.entry+' - DECLINED: '+item.reason));
+  }
+
+  return {lines,records};
+}
+
+async function runEnduranceClub(rawData,showData){
+  const mode=showData.associationEventType||showData.specialtyEventType||'prospect';
+  if(mode==='prospect') return runEnduranceProspects(rawData,showData);
+  if(mode==='unrated') return runEnduranceUnrated(rawData,showData);
+  if(mode==='rated') return await runEnduranceRated(rawData,showData);
+  throw new Error('Unknown Endurance Club event type.');
+}
+
 function tagAssociationRecords(result, associationKey, eventType) {
   const tagged = result || { lines: [], records: [] };
   (tagged.records || []).forEach(record => {
@@ -3444,9 +3900,12 @@ async function randomizeShow() {
     associationKey:
       activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'icelandic_horse_club'
         ? 'ihass'
-        : null,
+        : activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'endurance_club'
+          ? 'endurance_club'
+          : null,
     associationEventType:
-      activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'icelandic_horse_club'
+      activeRandomizerTab === 'specialty' &&
+      ['icelandic_horse_club','endurance_club'].includes($('showFormat')?.value)
         ? $('herdingEventType').value
         : null
   };
@@ -3494,6 +3953,8 @@ async function randomizeShow() {
       result = await runTestingSystem(rawData, showData);
     } else if (showData.showType === 'specialty-icelandic-horse-club') {
       result = runIcelandicClub(rawData, showData);
+    } else if (showData.showType === 'specialty-endurance-club') {
+      result = await runEnduranceClub(rawData, showData);
     } else if (getShowTypeKind(showData.showType, showData) === 'activity') {
       result = runActivity(rawData, showData);
     } else {
