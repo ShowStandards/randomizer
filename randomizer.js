@@ -1574,7 +1574,7 @@ const SS_HUNTING_FIELD_TESTS = {
       duck: { label:'Duck', code:'d' },
       goose: { label:'Goose', code:'g' },
       pheasant: { label:'Pheasant', code:'p' },
-      grouse: { label:'Grouse', code:'g' }
+      grouse: { label:'Grouse', code:'gr' }
     },
     categories: ['Marking','Search & Location','Pick-up / Retrieve','Delivery','Handler Cooperation']
   },
@@ -1660,6 +1660,17 @@ const SS_HUNTING_FIELD_TESTS = {
       deer: { label:'Deer', code:'d' }
     },
     categories: ['Scent / Line Work','Pack Cooperation','Communication','Persistence','Control']
+  },
+  catch_dogs: {
+    label: 'Catch Dogs',
+    code: 'CD',
+    specializations: {
+      boar: { label:'Boar', code:'b' },
+      feral_pig: { label:'Feral Pig', code:'p' },
+      cattle: { label:'Cattle', code:'c' },
+      bull: { label:'Bull', code:'bu' }
+    },
+    categories: ['Quarry Engagement','Hold / Control','Grip & Commitment','Handler Response','Safety & Stability']
   }
 };
 
@@ -3995,7 +4006,8 @@ function huntingDqReason(familyKey, levelKey) {
     versatile: ['Failed multiple required phases of the test'],
     coursing: ['Broke off pursuit and failed to re-engage'],
     falconry: ['Unsafe interference with the working bird'],
-    pack_hunting: ['Unsafe pack interference / loss of pack control']
+    pack_hunting: ['Unsafe pack interference / loss of pack control'],
+    catch_dogs: ['Unsafe catch / failed controlled release']
   }[familyKey] || [];
 
   const chance = levelKey === 'masters' ? 0.07 : levelKey === 'expert' ? 0.05 : 0.03;
