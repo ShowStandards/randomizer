@@ -605,6 +605,70 @@ async function uploadShowRecords() {
       }
 
       const animal = animalResult.animal;
+
+      /*
+        FINAL SPECIES SAFETY GUARD
+        --------------------------
+        The activity selector filters activities by the selected show species,
+        but pasted entry lines were previously trusted all the way through upload.
+
+        That meant a horse name pasted into a dog Barn Hunt show could still be
+        matched to the registry and written to show_records.
+
+        The registry is authoritative here. Never upload a matched animal into a
+        show whose selected species does not match the animal's registry species.
+      */
+      const registrySpecies = cleanLine(animal.species).toLowerCase();
+      const selectedShowSpecies = cleanLine(savedShowData.species).toLowerCase();
+
+      if (
+        selectedShowSpecies &&
+        registrySpecies &&
+        registrySpecies !== selectedShowSpecies
+      ) {
+        skipped++;
+        log +=
+          'Skipped, species mismatch: ' +
+          escapeHtml(animal.name) +
+          ' is registered as ' +
+          escapeHtml(registrySpecies) +
+          ', but this is a ' +
+          escapeHtml(selectedShowSpecies) +
+          ' show.<br>';
+        continue;
+      }
+
+      /*
+        SECOND ACTIVITY-SPECIES GUARD
+        -----------------------------
+        When the record has a known activity_key, also verify that the activity
+        itself is legal for the registry animal's species according to the
+        activity_types table.
+
+        This protects against malformed/stale show state as well as bad pasted
+        entries. Blank species on an activity_types row remains universal, matching
+        the existing speciesValueMatches() behavior.
+      */
+      if (r.show_type === 'activity' && r.activity_key) {
+        const activityType = activityTypesCache.find(row =>
+          String(row.activity_key || '') === String(r.activity_key || '')
+        );
+
+        if (
+          activityType &&
+          !speciesValueMatches(activityType.species, registrySpecies)
+        ) {
+          skipped++;
+          log +=
+            'Skipped, activity/species mismatch: ' +
+            escapeHtml(animal.name) +
+            ' (' + escapeHtml(registrySpecies) + ') cannot enter ' +
+            escapeHtml(activityType.display_name || r.activity_key) +
+            '.<br>';
+          continue;
+        }
+      }
+
       const payload = {
         upload_id: uploadId,
         animal_id: animal.id,
@@ -3175,6 +3239,22 @@ function splitPackActivityMembers(entry, className) {
   const rawName = String(entry && entry.name ? entry.name : entry || '').trim();
   if (!rawName || !isPackActivityClass(className)) return [entry];
 
+  /*
+    TEAM / PACK / BRACE ENTRY FORMAT
+    --------------------------------
+    A team line is:
+      Animal 1 - Animal 2 - Animal 3 - Owner
+
+    The old splitter only worked reliably when the class heading itself contained
+    "team", "pack", or "brace". Some activity formats identify the event as a team
+    event elsewhere, leaving the class name without that word. In that case the
+    whole combined string reached findAnimal(), which could produce the
+    "duplicate exact registry name" skips seen in team uploads.
+
+    Once this function has been called for a pack/team-aware record, split every
+    spaced-hyphen segment except the last one into an individual animal. The last
+    segment remains the owner.
+  */
   const parts = rawName.split(/\s+-\s+/).map(cleanLine).filter(Boolean);
   if (parts.length < 3) return [entry];
 
@@ -3184,11 +3264,35 @@ function splitPackActivityMembers(entry, className) {
   return members.map(memberName => ({
     name: memberName + ' - ' + owner,
     score: entry && entry.score !== undefined ? entry.score : undefined,
+    passed: entry && typeof entry.passed === 'boolean' ? entry.passed : undefined,
+    scoreLabel: entry && entry.scoreLabel ? entry.scoreLabel : undefined,
     sourcePackName: rawName
   }));
 }
 function activityRecordForEntry(records, showData, activity, className, entry, place, awardName, splitPackMembers) {
-  const recordEntries = splitPackMembers ? splitPackActivityMembers(entry, className) : [entry];
+  const teamAware =
+    !!splitPackMembers ||
+    isPackActivityClass(className) ||
+    isPackActivityClass(activity);
+
+  let recordEntries = [entry];
+
+  if (teamAware) {
+    const rawName = String(entry && entry.name ? entry.name : entry || '').trim();
+    const parts = rawName.split(/\s+-\s+/).map(cleanLine).filter(Boolean);
+
+    if (parts.length >= 3) {
+      const owner = parts[parts.length - 1];
+      recordEntries = parts.slice(0, -1).map(memberName => ({
+        name: memberName + ' - ' + owner,
+        score: entry && entry.score !== undefined ? entry.score : undefined,
+        passed: entry && typeof entry.passed === 'boolean' ? entry.passed : undefined,
+        scoreLabel: entry && entry.scoreLabel ? entry.scoreLabel : undefined,
+        sourcePackName: rawName
+      }));
+    }
+  }
+
   recordEntries.forEach(recordEntry => {
     activityRecord(records, showData, activity, className, recordEntry, place, awardName);
   });
