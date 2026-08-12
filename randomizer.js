@@ -3298,9 +3298,35 @@ function activityRecordForEntry(records, showData, activity, className, entry, p
   });
 }
 function bestInFieldFinalistsFromEntry(entry, className) {
-  // Pack/team/brace class winners qualify their individual dogs for Best in Field.
-  // Normal activity winners qualify as a single finalist.
-  return splitPackActivityMembers(entry, className);
+  /*
+    BEST IN FIELD TEAM SAFETY
+    -------------------------
+    Team/pack/brace winners must be expanded into their individual animals before
+    they enter the Best in Field final.
+
+    Do not rely only on the class heading containing "team", "pack", or "brace".
+    Some SS team formats use a normal-looking class heading even though the entry
+    line itself contains multiple animals:
+      Animal 1 - Animal 2 - Animal 3 - Owner
+
+    A normal individual entry has only:
+      Animal - Owner
+    so 3+ spaced-hyphen parts is a safe signal that this is a multi-animal entry.
+  */
+  const rawName = String(entry && entry.name ? entry.name : entry || '').trim();
+  const parts = rawName.split(/\s+-\s+/).map(cleanLine).filter(Boolean);
+
+  if (parts.length < 3) return [entry];
+
+  const owner = parts[parts.length - 1];
+
+  return parts.slice(0, -1).map(memberName => ({
+    name: memberName + ' - ' + owner,
+    score: entry && entry.score !== undefined ? entry.score : undefined,
+    passed: entry && typeof entry.passed === 'boolean' ? entry.passed : undefined,
+    scoreLabel: entry && entry.scoreLabel ? entry.scoreLabel : undefined,
+    sourcePackName: rawName
+  }));
 }
 function splitBalancedActivityGroups(entries) {
   // Divided activity classes split once they reach 10 entries.
