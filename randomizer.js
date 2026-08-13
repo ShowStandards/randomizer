@@ -567,59 +567,125 @@ function keepBestRecords(records) {
   return Object.values(map);
 }
 async function uploadShowRecords() {
+  const sourceTab = activeRandomizerTab;
+
+  if (randomizerUploadInProgress[sourceTab]) {
+    alert('This ' + sourceTab + ' workspace is already uploading. You can switch tabs and upload a different show while it finishes.');
+    return;
+  }
+
   if (!savedShowData || !savedResults || !savedRecords.length) {
     alert('Please run a show first before uploading.');
     return;
   }
+
   const supabase = getSupabase();
-  if (!supabase) { alert('Supabase is not ready. Refresh and try again.'); return; }
+  if (!supabase) {
+    alert('Supabase is not ready. Refresh and try again.');
+    return;
+  }
+
+  /*
+    PARALLEL-UPLOAD SAFETY
+    ----------------------
+    These are immutable snapshots of the show that was on THIS tab when Upload
+    was clicked. From this point forward the async upload never reads the global
+    savedShowData/savedResults/savedRecords again.
+
+    This means the user can:
+      1. start uploading a Conformation show,
+      2. switch to Activities,
+      3. start uploading an Activity show,
+    without either upload inheriting the other tab's show name, species, records,
+    association data, or results.
+  */
+  const uploadShowData = JSON.parse(JSON.stringify(savedShowData));
+  const uploadResults = String(savedResults || '');
+  const uploadRecords = JSON.parse(JSON.stringify(savedRecords));
+
+  // Preserve the originating workspace before any asynchronous work begins.
+  captureWorkspaceState();
+  randomizerUploadInProgress[sourceTab] = true;
+
   const btn = $('uploadButton');
-  btn.disabled = true;
-  btn.textContent = '⏳ Uploading...';
-  showMessage('success', '<strong>Upload started.</strong><br>Loading animals and activity types...');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Uploading...';
+  }
+
+  setWorkspaceUploadMessage(
+    sourceTab,
+    'success',
+    '<strong>Upload started.</strong><br>Loading animals and activity types...'
+  );
+
   try {
     const animalMap = await loadAnimalsMap(supabase);
     await loadActivityTypes(supabase);
-    savedShowData.showDate = savedShowData.showDate || getTodayISODate();
-    const upload = await createShowUpload(supabase, savedShowData, savedResults);
+
+    uploadShowData.showDate = uploadShowData.showDate || getTodayISODate();
+
+    const upload = await createShowUpload(
+      supabase,
+      uploadShowData,
+      uploadResults
+    );
+
     const uploadId = upload && upload.id ? upload.id : null;
-    const uploadedShowDate = (upload && (upload.show_date || upload.event_date || upload.date)) || savedShowData.showDate;
-    const finalRecords = keepBestRecords(savedRecords);
-    let inserted = 0, skipped = 0, failed = 0;
-    let log = '<strong>Upload log</strong><br>Created show upload: ' + escapeHtml(savedShowData.showName) + '<br>Show date: ' + escapeHtml(uploadedShowDate) + '<br>Registry animals loaded: ' + Number(animalMap.__animalCount || 0) + '<br>Records prepared: ' + finalRecords.length + '<br>';
+    const uploadedShowDate =
+      (upload && (upload.show_date || upload.event_date || upload.date)) ||
+      uploadShowData.showDate;
+
+    const finalRecords = keepBestRecords(uploadRecords);
+
+    let inserted = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    let log =
+      '<strong>Upload log</strong><br>' +
+      'Created show upload: ' + escapeHtml(uploadShowData.showName) + '<br>' +
+      'Show date: ' + escapeHtml(uploadedShowDate) + '<br>' +
+      'Registry animals loaded: ' + Number(animalMap.__animalCount || 0) + '<br>' +
+      'Records prepared: ' + finalRecords.length + '<br>';
+
     for (const r of finalRecords) {
       const animalResult = findAnimal(r.animal_name, animalMap);
 
       if (animalResult.status === 'not-found') {
         skipped++;
-        log += 'Skipped, exact animal name not found: ' + r.animal_name +
-          ' <small>(searched as: ' + (removeDecorations(r.animal_name) || 'blank') + ')</small><br>';
+        log +=
+          'Skipped, exact animal name not found: ' +
+          escapeHtml(r.animal_name) +
+          ' <small>(searched as: ' +
+          escapeHtml(removeDecorations(r.animal_name) || 'blank') +
+          ')</small><br>';
         continue;
       }
 
       if (animalResult.status === 'ambiguous') {
         skipped++;
-        log += 'Skipped, duplicate exact registry name: ' + r.animal_name +
-          ' (' + animalResult.matches.map(match => match.name + ' #' + (match.animal_number || 'no number')).join(', ') + ')<br>';
+        log +=
+          'Skipped, duplicate exact registry name: ' +
+          escapeHtml(r.animal_name) +
+          ' (' +
+          animalResult.matches
+            .map(match =>
+              escapeHtml(match.name) +
+              ' #' +
+              escapeHtml(match.animal_number || 'no number')
+            )
+            .join(', ') +
+          ')<br>';
         continue;
       }
 
       const animal = animalResult.animal;
 
-      /*
-        FINAL SPECIES SAFETY GUARD
-        --------------------------
-        The activity selector filters activities by the selected show species,
-        but pasted entry lines were previously trusted all the way through upload.
-
-        That meant a horse name pasted into a dog Barn Hunt show could still be
-        matched to the registry and written to show_records.
-
-        The registry is authoritative here. Never upload a matched animal into a
-        show whose selected species does not match the animal's registry species.
-      */
+      // Registry species is authoritative.
       const registrySpecies = cleanLine(animal.species).toLowerCase();
-      const selectedShowSpecies = cleanLine(savedShowData.species).toLowerCase();
+      const selectedShowSpecies =
+        cleanLine(uploadShowData.species).toLowerCase();
 
       if (
         selectedShowSpecies &&
@@ -638,17 +704,7 @@ async function uploadShowRecords() {
         continue;
       }
 
-      /*
-        SECOND ACTIVITY-SPECIES GUARD
-        -----------------------------
-        When the record has a known activity_key, also verify that the activity
-        itself is legal for the registry animal's species according to the
-        activity_types table.
-
-        This protects against malformed/stale show state as well as bad pasted
-        entries. Blank species on an activity_types row remains universal, matching
-        the existing speciesValueMatches() behavior.
-      */
+      // Second activity/species guard.
       if (r.show_type === 'activity' && r.activity_key) {
         const activityType = activityTypesCache.find(row =>
           String(row.activity_key || '') === String(r.activity_key || '')
@@ -662,7 +718,9 @@ async function uploadShowRecords() {
           log +=
             'Skipped, activity/species mismatch: ' +
             escapeHtml(animal.name) +
-            ' (' + escapeHtml(registrySpecies) + ') cannot enter ' +
+            ' (' +
+            escapeHtml(registrySpecies) +
+            ') cannot enter ' +
             escapeHtml(activityType.display_name || r.activity_key) +
             '.<br>';
           continue;
@@ -677,43 +735,85 @@ async function uploadShowRecords() {
         show_type: r.show_type,
         show_scope: r.show_scope || null,
         event_date: uploadedShowDate,
-        class: r.class_name || (r.show_type === 'activity' ? 'Activity' : 'Class 1'),
+        class:
+          r.class_name ||
+          (r.show_type === 'activity' ? 'Activity' : 'Class 1'),
         placement: r.placement,
         points: Number(r.points || 0),
         calculated_points: Number(r.points || 0),
-        score: r.score !== null && r.score !== undefined ? Number(r.score) : null,
-        max_score: r.max_score !== null && r.max_score !== undefined ? Number(r.max_score) : null,
-        passed: typeof r.passed === 'boolean' ? r.passed : null,
+        score:
+          r.score !== null && r.score !== undefined
+            ? Number(r.score)
+            : null,
+        max_score:
+          r.max_score !== null && r.max_score !== undefined
+            ? Number(r.max_score)
+            : null,
+        passed:
+          typeof r.passed === 'boolean' ? r.passed : null,
         score_label: r.score_label || null,
         activity_key: r.activity_key || null,
-        association_key: r.association_key || savedShowData.associationKey || null,
-        association_event_type: r.association_event_type || savedShowData.associationEventType || null,
+        association_key:
+          r.association_key ||
+          uploadShowData.associationKey ||
+          null,
+        association_event_type:
+          r.association_event_type ||
+          uploadShowData.associationEventType ||
+          null,
         endurance_race_key: r.endurance_race_key || null,
         endurance_race_name: r.endurance_race_name || null,
         endurance_grade: r.endurance_grade || null,
         endurance_conference: r.endurance_conference || null,
         endurance_circuit: r.endurance_circuit || null,
         endurance_series: r.endurance_series || null,
-        endurance_distance_km: r.endurance_distance_km !== null && r.endurance_distance_km !== undefined ? Number(r.endurance_distance_km) : null,
+        endurance_distance_km:
+          r.endurance_distance_km !== null &&
+          r.endurance_distance_km !== undefined
+            ? Number(r.endurance_distance_km)
+            : null,
         endurance_winnings: Number(r.endurance_winnings || 0),
-        endurance_season: r.endurance_season || Number(String(uploadedShowDate || '').slice(0,4)) || new Date().getFullYear(),
-        endurance_completed: typeof r.endurance_completed === 'boolean' ? r.endurance_completed : null,
+        endurance_season:
+          r.endurance_season ||
+          Number(String(uploadedShowDate || '').slice(0, 4)) ||
+          new Date().getFullYear(),
+        endurance_completed:
+          typeof r.endurance_completed === 'boolean'
+            ? r.endurance_completed
+            : null,
         hunting_family: r.hunting_family || null,
         hunting_specialization: r.hunting_specialization || null,
         hunting_level: r.hunting_level || null
       };
-      let { error } = await supabase.from('show_records').insert(payload);
-      if (error && /score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
+
+      let { error } = await supabase
+        .from('show_records')
+        .insert(payload);
+
+      if (
+        error &&
+        /score|max_score|passed|score_label|column/i.test(
+          String(error.message || '')
+        )
+      ) {
         const fallbackPayload = Object.assign({}, payload);
         delete fallbackPayload.score;
         delete fallbackPayload.max_score;
         delete fallbackPayload.passed;
         delete fallbackPayload.score_label;
         delete fallbackPayload.activity_key;
-        const retry = await supabase.from('show_records').insert(fallbackPayload);
+
+        const retry = await supabase
+          .from('show_records')
+          .insert(fallbackPayload);
+
         error = retry.error;
       }
-      if (error && /event_date|column/i.test(String(error.message || ''))) {
+
+      if (
+        error &&
+        /event_date|column/i.test(String(error.message || ''))
+      ) {
         const fallbackPayload = Object.assign({}, payload);
         delete fallbackPayload.event_date;
         delete fallbackPayload.score;
@@ -721,20 +821,64 @@ async function uploadShowRecords() {
         delete fallbackPayload.passed;
         delete fallbackPayload.score_label;
         delete fallbackPayload.activity_key;
-        const retry = await supabase.from('show_records').insert(fallbackPayload);
+
+        const retry = await supabase
+          .from('show_records')
+          .insert(fallbackPayload);
+
         error = retry.error;
       }
-      if (error) { failed++; log += 'ERROR for ' + r.animal_name + ': ' + error.message + '<br>'; }
-      else { inserted++; }
+
+      if (error) {
+        failed++;
+        log +=
+          'ERROR for ' +
+          escapeHtml(r.animal_name) +
+          ': ' +
+          escapeHtml(error.message) +
+          '<br>';
+      } else {
+        inserted++;
+      }
     }
-    log += '<br><strong>Upload complete.</strong><br>Inserted: ' + inserted + '<br>Skipped: ' + skipped + '<br>Failed: ' + failed;
-    showMessage(failed ? 'error' : 'success', log);
-    captureWorkspaceState();
+
+    log +=
+      '<br><strong>Upload complete.</strong><br>' +
+      'Inserted: ' + inserted + '<br>' +
+      'Skipped: ' + skipped + '<br>' +
+      'Failed: ' + failed;
+
+    setWorkspaceUploadMessage(
+      sourceTab,
+      failed ? 'error' : 'success',
+      log
+    );
+
   } catch (err) {
-    showMessage('error', '<strong>Upload failed:</strong><br>' + String(err.message || err));
+    setWorkspaceUploadMessage(
+      sourceTab,
+      'error',
+      '<strong>Upload failed:</strong><br>' +
+      escapeHtml(String(err.message || err))
+    );
   } finally {
-    btn.disabled = false;
-    btn.textContent = '💾 Upload to Animal Show Records';
+    randomizerUploadInProgress[sourceTab] = false;
+
+    /*
+      Only update the visible button if the user is still on the tab that
+      started this upload. If they switched to another tab, leave that tab's
+      button alone.
+    */
+    if (activeRandomizerTab === sourceTab) {
+      const currentBtn = $('uploadButton');
+      if (currentBtn) {
+        currentBtn.disabled = false;
+        currentBtn.textContent = '💾 Upload to Animal Show Records';
+      }
+
+      // Capture only this tab's own final upload log/state.
+      captureWorkspaceState();
+    }
   }
 }
 
@@ -1309,6 +1453,15 @@ const randomizerWorkspaceState = {
   specialty: null
 };
 
+// Each workspace can upload independently. The upload routine snapshots the
+// originating tab's show data/records so switching tabs or starting another
+// upload cannot overwrite an upload already in progress.
+const randomizerUploadInProgress = {
+  conformation: false,
+  activities: false,
+  specialty: false
+};
+
 const RANDOMIZER_TAB_DEFAULTS = {
   conformation: {
     species: 'dog',
@@ -1381,6 +1534,22 @@ function captureWorkspaceState() {
 
   randomizerWorkspaceState[activeRandomizerTab] = state;
   return state;
+}
+
+function setWorkspaceUploadMessage(tabName, type, html) {
+  const state = randomizerWorkspaceState[tabName];
+
+  if (state) {
+    state.messageHtml =
+      '<div class="ss-message ss-message-' + type + '">' + html + '</div>';
+    state.messageClass = 'ss-message-wrap';
+  }
+
+  // Only touch the visible message area when this upload belongs to the tab
+  // the user is currently viewing.
+  if (activeRandomizerTab === tabName) {
+    showMessage(type, html);
+  }
 }
 
 function resetVisibleWorkspace() {
@@ -1531,6 +1700,16 @@ async function restoreWorkspaceState(tabName) {
   if ($('ssMessages')) {
     $('ssMessages').innerHTML = state.messageHtml || '';
     $('ssMessages').className = state.messageClass || 'hidden';
+  }
+
+  // If this workspace has an upload still running in the background, keep its
+  // restored Upload button disabled instead of making a second upload look safe.
+  if (randomizerUploadInProgress[tabName]) {
+    const restoredUploadButton = $('uploadButton');
+    if (restoredUploadButton) {
+      restoredUploadButton.disabled = true;
+      restoredUploadButton.textContent = '⏳ Uploading...';
+    }
   }
 
   updatePhase1UI();
