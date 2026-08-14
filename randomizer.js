@@ -195,7 +195,7 @@ const SS_ENTRY_TITLE_CODES = [
   'RCCH','RCN','RCI','RCA','RCE',
   'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
   'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
-  'FFA','VBC','VNC','TTC','ATC',
+  'FFA','VBC','VNC','TTC','TTD','ATC',
   'CIHDM','IHDM','ENJ','ENN','ENO','GDM','GDI','GD3L','GDT','GYR',
   'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
   'DCPEC',
