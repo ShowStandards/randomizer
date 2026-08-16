@@ -12,7 +12,7 @@ const SS_CONFIG = {
   supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXAiOiJ2eXVrbGtycXVzZnZyY2FxeG1mbSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc1MTIzOTQzLCJleHAiOjIwOTA2OTk0M30.invalid_replace_with_current_key',
   groupOrder: [
     'ASIAN','BRITISH','FOREST & MOUNTAIN CAT','LILLIPUTIAN','PERSIAN & HYBRID','PATTERNED','REX','ORIENTAL & SIAMESE','SEMI-LONGHAIR','MISCELLANEOUS',
-    'TOYS','TERRIERS','GUNDOGS','HOUNDS','WORKING','NON-SPORTING','HERDING',
+    'TOYS','TERRIERS','GUNDOGS','HOUNDS','SIGHTHOUNDS','WORKING','NON-SPORTING','HERDING',
     'BAROQUE','DRAFT HORSES','FERAL','GAITED','LIGHT HORSES','MINIATURES','PONIES','STOCK HORSES','WARMBLOODS'
   ],
   titleCodes: ['SPRWCH','NATCH','INTCH','UNICH','GCH','WCH','HOF','HOL','CH'],
@@ -88,6 +88,7 @@ function normalizeGroupName(name) {
   if (n === 'PATTERENED') n = 'PATTERNED';
   if (n === 'SEMI-LONGHAIRED') n = 'SEMI-LONGHAIR';
   if (n === 'ORIENTAL&SIAMESE' || n === 'ORIENTAL AND SIAMESE') n = 'ORIENTAL & SIAMESE';
+  if (n === 'SIGHTHOUND' || n === 'SIGHT HOUND' || n === 'SIGHT HOUNDS') n = 'SIGHTHOUNDS';
   return n;
 }
 function normalizeBreedName(name) {
@@ -1947,6 +1948,12 @@ function specialtySystemsForSpecies(species) {
 function renderSpecialtySystemOptions() {
   if (activeRandomizerTab !== 'specialty' || !$('showFormat')) return;
 
+  // Preserve the user's currently selected specialty system when the UI
+  // refreshes. Without this, rebuilding the <select> resets horse specialties
+  // to the first option (Temperament / Therapy), even when Icelandic Horse
+  // Club was selected. That made an IHASS 'breeding' event get routed into
+  // the testing runner, which then crashed trying to read level.label from null.
+  const previousSystem = $('showFormat').value;
   const species = $('showSpecies') ? $('showSpecies').value : 'dog';
   const systems = specialtySystemsForSpecies(species);
 
@@ -1978,7 +1985,10 @@ function renderSpecialtySystemOptions() {
     '</option>'
   ).join('');
 
-  if (!$('showFormat').value && $('showFormat').options.length) {
+  const canRestorePrevious = systems.some(system => system.key === previousSystem);
+  if (canRestorePrevious) {
+    $('showFormat').value = previousSystem;
+  } else if ($('showFormat').options.length) {
     $('showFormat').selectedIndex = 0;
   }
 }
@@ -4573,6 +4583,14 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
 
 async function runTestingSystem(rawData,showData){
   const eventType=showData.specialtyEventType||showData.herdingEventType||'temperament';
+
+  // Testing systems only understand these three events. Guard against stale
+  // specialty UI state so an association event such as IHASS 'breeding' can
+  // never fall through to the CGC branch and dereference a null level object.
+  if (!['temperament','therapy','cgc'].includes(eventType)) {
+    throw new Error('Invalid testing event "' + eventType + '". Re-select the specialty system and event.');
+  }
+
   const {accepted,declined}=await loadTestingEligibilityContext(rawData,showData,eventType);
   if(!accepted.length){
     throw new Error('No eligible testing entries. '+declined.map(x=>x.entry+': '+x.reason).join('; '));
