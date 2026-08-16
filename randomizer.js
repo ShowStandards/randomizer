@@ -4248,7 +4248,7 @@ async function runHuntingClub(rawData, showData) {
   for (const rawEntry of entries) {
     const match = findAnimal(rawEntry, animalMap);
 
-    if (match.status !== 'ok') {
+    if (match.status !== 'matched') {
       declined.push({
         entry: rawEntry,
         reason: match.status === 'ambiguous'
@@ -4373,10 +4373,10 @@ function parseIcelandicBreeding(rawData) {
       return;
     }
 
-    // Historical IHASS breeding shows used Class 1A-4C.
-    // Also permit a plain custom class heading so future shows are not locked
-    // to the old class list.
-    if (/^class\s+[1-4][abc]$/i.test(line) || /^breeding\s+class\b/i.test(line)) {
+    // Historical IHASS breeding shows use Class 1A-4C and may include a
+    // description after the class code, e.g. "Class 2C: 5yo Mares".
+    // Accept those directly, while still allowing custom future class headings.
+    if (/^class\s+[1-4][abc](?:\s*[:.-]\s*.*)?$/i.test(line) || /^breeding\s+class\b/i.test(line)) {
       current = { name: line, entries: [] };
       classes.push(current);
       return;
@@ -4450,7 +4450,16 @@ function runIcelandicBreeding(rawData, showData) {
 }
 
 function runIcelandicClub(rawData, showData) {
-  const eventType = showData.associationEventType || showData.specialtyEventType || showData.herdingEventType || 'halter';
+  // Keep IHASS routing completely independent from the other specialty systems.
+  // This prevents stale/hidden specialty controls from leaking a null object into
+  // the Icelandic runner when switching between association tabs.
+  const eventType = cleanLine(
+    showData && (
+      showData.associationEventType ||
+      showData.specialtyEventType ||
+      showData.herdingEventType
+    ) || 'halter'
+  ).toLowerCase();
 
   if (eventType === 'halter') {
     // Run through the normal conformation engine so every earned point also
@@ -4769,6 +4778,8 @@ async function randomizeShow() {
   const rawData = $('rawData').value;
   const isChampionship = selectedChampionshipMode() === 'championship' && selectedEventCategory() !== 'herding';
   const showType = resolveLegacyShowType();
+  const specialtyEventSelect = $('herdingEventType');
+  const specialtyEventValue = specialtyEventSelect ? specialtyEventSelect.value : null;
 
   const showData = {
     showName: cleanLine($('showName').value) || 'Untitled Show',
@@ -4785,8 +4796,8 @@ async function randomizeShow() {
     seriesRound: isChampionship
       ? null
       : cleanLine($('seriesRound').value),
-    herdingEventType: $('herdingEventType').value,
-    specialtyEventType: $('herdingEventType').value,
+    herdingEventType: specialtyEventValue,
+    specialtyEventType: specialtyEventValue,
     associationKey:
       activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'icelandic_horse_club'
         ? 'ihass'
@@ -4798,7 +4809,7 @@ async function randomizeShow() {
     associationEventType:
       activeRandomizerTab === 'specialty' &&
       ['icelandic_horse_club','endurance_club','hunting_club'].includes($('showFormat')?.value)
-        ? $('herdingEventType').value
+        ? specialtyEventValue
         : null
   };
 
