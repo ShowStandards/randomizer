@@ -2386,6 +2386,12 @@ function endurancePrizeForPlace(place) {
 function updatePhase1UI() {
   const category = selectedEventCategory();
   const isActivity = activeRandomizerTab === 'activities';
+
+  // IMPORTANT: rebuild/preserve the specialty selector BEFORE reading its value.
+  // Reading it first can use the previous system for one UI cycle and configure
+  // the event dropdown for the wrong runner.
+  renderShowFormatOptions();
+
   const selectedSpecialtySystem =
     activeRandomizerTab === 'specialty' && $('showFormat')
       ? $('showFormat').value
@@ -2409,8 +2415,6 @@ function updatePhase1UI() {
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
-
-  renderShowFormatOptions();
 
   // Reuse the existing specialty event-type control so no HTML/CSS change is needed.
   if ($('herdingEventType')) {
@@ -4616,6 +4620,9 @@ async function runTestingSystem(rawData,showData){
       r.score_label=passed?code:'Fail';
     }else{
       const level=item.cgcLevel;
+      if (!level) {
+        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
+      }
       const passed=Math.random()<0.5;
       addLine(lines,item.rawEntry+' - '+level.label+' ('+level.code+') - '+(passed?'Pass':'Fail'));
       activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
@@ -4796,6 +4803,9 @@ async function randomizeShow() {
   const rawData = $('rawData').value;
   const isChampionship = selectedChampionshipMode() === 'championship' && selectedEventCategory() !== 'herding';
   const showType = resolveLegacyShowType();
+  const specialtySystemKey = activeRandomizerTab === 'specialty' && $('showFormat')
+    ? $('showFormat').value
+    : null;
   const specialtyEventSelect = $('herdingEventType');
   const specialtyEventValue = specialtyEventSelect ? specialtyEventSelect.value : null;
 
@@ -4817,16 +4827,15 @@ async function randomizeShow() {
     herdingEventType: specialtyEventValue,
     specialtyEventType: specialtyEventValue,
     associationKey:
-      activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'icelandic_horse_club'
+      specialtySystemKey === 'icelandic_horse_club'
         ? 'ihass'
-        : activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'endurance_club'
+        : specialtySystemKey === 'endurance_club'
           ? 'endurance_club'
-          : activeRandomizerTab === 'specialty' && $('showFormat')?.value === 'hunting_club'
+          : specialtySystemKey === 'hunting_club'
             ? 'hunting_club'
             : null,
     associationEventType:
-      activeRandomizerTab === 'specialty' &&
-      ['icelandic_horse_club','endurance_club','hunting_club'].includes($('showFormat')?.value)
+      ['icelandic_horse_club','endurance_club','hunting_club'].includes(specialtySystemKey)
         ? specialtyEventValue
         : null
   };
@@ -4868,16 +4877,17 @@ async function randomizeShow() {
 
     if (isChampionship) {
       result = await buildChampionshipQualifiers(showData, false);
-    } else if (showData.showType === 'herding-club') {
-      result = runHerdingClub(rawData, showData);
-    } else if (/^specialty-testing-system-/.test(showData.showType)) {
-      result = await runTestingSystem(rawData, showData);
-    } else if (showData.showType === 'specialty-icelandic-horse-club') {
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'icelandic_horse_club') {
+      // Route from the ACTUAL selected specialty system, not a derived/stale showType.
       result = runIcelandicClub(rawData, showData);
-    } else if (showData.showType === 'specialty-endurance-club') {
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'endurance_club') {
       result = await runEnduranceClub(rawData, showData);
-    } else if (showData.showType === 'specialty-hunting-club') {
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'hunting_club') {
       result = await runHuntingClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'herding_club') {
+      result = runHerdingClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && /^testing_system_/.test(specialtySystemKey || '')) {
+      result = await runTestingSystem(rawData, showData);
     } else if (getShowTypeKind(showData.showType, showData) === 'activity') {
       result = runActivity(rawData, showData);
     } else {
@@ -4891,6 +4901,7 @@ async function randomizeShow() {
     captureWorkspaceState();
 
   } catch (err) {
+    console.error('SS Randomizer error:', err && err.stack ? err.stack : err);
     showMessage('error', '<strong>ERROR:</strong> ' + escapeHtml(String(err.message || err)));
   }
 }
