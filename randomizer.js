@@ -4492,8 +4492,18 @@ function runIcelandicClub(rawData, showData) {
   }
 
   if (eventType === 'gaiting') {
-    // Run through the normal Gaiting activity engine. These points therefore
-    // count once toward ordinary Gaiting and are also filterable for IHASS.
+    // IHASS gaiting classes are individual CLASSES inside the normal Gaiting
+    // activity. Keep the exact Icelandic class name for display/history, but
+    // force every generated record into the canonical Gaiting activity bucket.
+    //
+    // Examples:
+    // T1: Open Tölt
+    // T2: Open Loose Rein Tölt
+    // V1: Four-Gait Open
+    // F1: Five-Gait Open
+    // P1: Pace Race 250m
+    // P2: SpeedPass: Pace Race 100m with flying start
+    // PP1: Pace Test
     const normalShowData = Object.assign({}, showData, {
       showType: 'activity-divided',
       activityKey: 'gaiting',
@@ -4501,11 +4511,17 @@ function runIcelandicClub(rawData, showData) {
       associationEventType: 'gaiting'
     });
 
-    return tagAssociationRecords(
-      runActivity(rawData, normalShowData),
-      'ihass',
-      'gaiting'
-    );
+    const result = runActivity(rawData, normalShowData);
+
+    (result.records || []).forEach(record => {
+      // Do NOT replace class_name: it must remain the exact entered IHASS class.
+      record.activity_key = 'gaiting';
+      record.association_key = 'ihass';
+      record.association_event_type = 'gaiting';
+      record.show_type = 'activity';
+    });
+
+    return result;
   }
 
   if (eventType === 'breeding') {
