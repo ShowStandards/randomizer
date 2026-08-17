@@ -260,7 +260,7 @@ async function loadAnimalsMap(supabase) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from('animals')
-      .select('id, animal_number, name, normalized_name, species')
+      .select('id, animal_number, name, normalized_name, species, breed')
       .order('id', { ascending: true })
       .range(from, to);
 
@@ -295,6 +295,7 @@ async function loadAnimalsMap(supabase) {
           animal_number: a.animal_number,
           name: a.name,
           species: a.species || null,
+          breed: a.breed || null,
           key
         });
       }
@@ -1851,6 +1852,24 @@ const SS_HUNTING_FIELD_TESTS = {
       bull: { label:'Bull', code:'bu' }
     },
     categories: ['Quarry Engagement','Hold / Control','Grip & Commitment','Handler Response','Safety & Stability']
+  },
+  tolling: {
+    label: 'Tolling',
+    code: 'Tl',
+    eligibleBreeds: ['Nova Scotia Duck Tolling Retriever','Nederlandse Kooikerhondje'],
+    specializations: {
+      waterfowl: { label:'Waterfowl', code:'w' }
+    },
+    categories: ['Tolling / Search Pattern','Quarry Attraction','Steadiness','Retrieve / Delivery','Handler Cooperation']
+  },
+  puffin_hunting: {
+    label: 'Puffin Hunting',
+    code: 'Pu',
+    eligibleBreeds: ['Norwegian Lundehund'],
+    specializations: {
+      puffin: { label:'Puffin', code:'p' }
+    },
+    categories: ['Search & Location','Terrain / Agility','Den / Crevice Work','Quarry Retrieval','Handler Cooperation']
   }
 };
 
@@ -4200,7 +4219,9 @@ function huntingDqReason(familyKey, levelKey) {
     coursing: ['Broke off pursuit and failed to re-engage'],
     falconry: ['Unsafe interference with the working bird'],
     pack_hunting: ['Unsafe pack interference / loss of pack control'],
-    catch_dogs: ['Unsafe catch / failed controlled release']
+    catch_dogs: ['Unsafe catch / failed controlled release'],
+    tolling: ['Failed to engage or sustain the tolling sequence'],
+    puffin_hunting: ['Failed the den / crevice search or controlled retrieval']
   }[familyKey] || [];
 
   const chance = levelKey === 'masters' ? 0.07 : levelKey === 'expert' ? 0.05 : 0.03;
@@ -4277,6 +4298,22 @@ async function runHuntingClub(rawData, showData) {
     if (cleanLine(animal.species).toLowerCase() !== 'dog') {
       declined.push({ entry: rawEntry, reason:'Hunting Club Field Tests are dogs only' });
       continue;
+    }
+
+    // Breed-restricted historical field tests.
+    if (Array.isArray(family.eligibleBreeds) && family.eligibleBreeds.length) {
+      const animalBreed = cleanLine(animal.breed).toLowerCase();
+      const eligible = family.eligibleBreeds.some(breed =>
+        cleanLine(breed).toLowerCase() === animalBreed
+      );
+
+      if (!eligible) {
+        declined.push({
+          entry: rawEntry,
+          reason: family.label + ' is limited to ' + family.eligibleBreeds.join(' and ')
+        });
+        continue;
+      }
     }
 
     const prior = await huntingPriorQualifications(
