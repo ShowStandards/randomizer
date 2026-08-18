@@ -1351,6 +1351,19 @@ function buildTitleSpecialtySections(groups) {
     titles
   })).filter(section => countGroupIndividuals(section.groups) > 0);
 }
+function majorChaseMultiplierForClassSize(classSize) {
+  /*
+    MAJOR CHASE:
+    1-10 = x1
+    11-20 = x2
+    21-30 = x3
+    31-40 = x4
+    and so on.
+  */
+  const size = Math.max(0, Number(classSize || 0));
+  return size > 0 ? Math.ceil(size / 10) : 1;
+}
+
 function buildMajorChaseGroups(groups) {
   return mergeConformationGroups(groups).map(group => ({
     name: group.name,
@@ -1364,12 +1377,49 @@ function buildMajorChaseGroups(groups) {
       });
 
       const classes = [];
-      if (males.length) classes.push({ name: 'Class 5', entries: males });
-      if (females.length) classes.push({ name: 'Class 5a', entries: females });
+      if (males.length) {
+        classes.push({
+          name: 'Class 5',
+          entries: males,
+          majorMultiplier: majorChaseMultiplierForClassSize(males.length)
+        });
+      }
+      if (females.length) {
+        classes.push({
+          name: 'Class 5a',
+          entries: females,
+          majorMultiplier: majorChaseMultiplierForClassSize(females.length)
+        });
+      }
 
       return { name: breed.name, classes };
     }).filter(breed => breed.classes.length)
   })).filter(group => group.breeds.length);
+}
+
+function applyMajorChasePoints(result, majorGroups) {
+  const multiplierByAnimal = new Map();
+
+  (majorGroups || []).forEach(group => {
+    (group.breeds || []).forEach(breed => {
+      (breed.classes || []).forEach(cls => {
+        const multiplier = Number(cls.majorMultiplier || 0) ||
+          majorChaseMultiplierForClassSize((cls.entries || []).length);
+
+        (cls.entries || []).forEach(entry => {
+          multiplierByAnimal.set(String(entry || ''), multiplier);
+        });
+      });
+    });
+  });
+
+  (result.records || []).forEach(record => {
+    const multiplier = multiplierByAnimal.get(String(record.animal_name || '')) || 1;
+    record.points = Number(record.points || 0) * multiplier;
+    record.major_multiplier = multiplier;
+  });
+
+  return result;
 }
 
 function runConformation(rawData, showData) {
@@ -1377,7 +1427,9 @@ function runConformation(rawData, showData) {
   if (!groups.length) throw new Error('No valid conformation groups found.');
 
   if (showData.showType === 'major-chase') {
-    return runConformationGroups(buildMajorChaseGroups(groups), showData, { finals: 'all-breed' });
+    const majorGroups = buildMajorChaseGroups(groups);
+    const result = runConformationGroups(majorGroups, showData, { finals: 'all-breed' });
+    return applyMajorChasePoints(result, majorGroups);
   }
 
   if (showData.showType === 'rare-breed') {
