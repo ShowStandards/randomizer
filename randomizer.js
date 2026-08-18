@@ -4684,8 +4684,47 @@ async function runTestingSystem(rawData,showData){
   const heading=eventType==='temperament'?'Temperament Test':eventType==='therapy'?'Therapy Animal Test':'Canine Good Citizen Test';
   addLine(lines,bold(heading)); addLine(lines,'');
 
-  accepted.forEach(item=>{
-    if(eventType==='temperament'||eventType==='therapy'){
+  if(eventType==='cgc'){
+    // Group dogs by the CGC title they are currently attempting so the output
+    // reads as separate title classes: CGC, CGCB, CGCS, CGCG, CGCA, CGCU.
+    const levelOrder=['cgc','cgcb','cgcs','cgcg','cgca','cgcu'];
+    const grouped={};
+
+    accepted.forEach(item=>{
+      const level=item.cgcLevel;
+      if(!level){
+        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
+      }
+      if(!grouped[level.key]) grouped[level.key]=[];
+      grouped[level.key].push(item);
+    });
+
+    levelOrder.forEach(levelKey=>{
+      const group=grouped[levelKey]||[];
+      if(!group.length) return;
+
+      const level=group[0].cgcLevel;
+      addLine(lines,bold(level.label+' ('+level.code+')'));
+      addLine(lines,'');
+
+      group.forEach(item=>{
+        const passed=Math.random()<0.5;
+        addLine(lines,item.rawEntry+' - '+(passed?'Pass':'Fail'));
+        activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
+        const r=records[records.length-1];
+        r.activity_key=level.key;
+        r.class_name=level.label;
+        r.points=0;
+        r.score=null;
+        r.max_score=null;
+        r.passed=passed;
+        r.score_label=passed?level.code:'Fail';
+      });
+
+      addLine(lines,'');
+    });
+  }else{
+    accepted.forEach(item=>{
       const score=Math.floor(Math.random()*201);
       const passed=score>=110;
       const code=(eventType==='temperament'?'TT':'TA')+speciesSuffix;
@@ -4694,21 +4733,14 @@ async function runTestingSystem(rawData,showData){
       activityRecord(records,showData,className,className,{name:item.rawEntry,score,passed},1,passed?'Pass':'Fail');
       const r=records[records.length-1];
       r.activity_key=eventType==='temperament'?'temperament_test':'therapy_animal';
-      r.class_name=className; r.points=0; r.score=score; r.max_score=200; r.passed=passed;
+      r.class_name=className;
+      r.points=0;
+      r.score=score;
+      r.max_score=200;
+      r.passed=passed;
       r.score_label=passed?code:'Fail';
-    }else{
-      const level=item.cgcLevel;
-      if (!level) {
-        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
-      }
-      const passed=Math.random()<0.5;
-      addLine(lines,item.rawEntry+' - '+level.label+' ('+level.code+') - '+(passed?'Pass':'Fail'));
-      activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
-      const r=records[records.length-1];
-      r.activity_key=level.key; r.class_name=level.label; r.points=0; r.score=null; r.max_score=null; r.passed=passed;
-      r.score_label=passed?level.code:'Fail';
-    }
-  });
+    });
+  }
 
   if(declined.length){
     addLine(lines,''); addLine(lines,bold('Declined Entries'));
