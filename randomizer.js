@@ -2628,10 +2628,41 @@ const CHAMPIONSHIP_AWARD_SETS = {
 function selectedChampionshipShowIds() {
   return Array.from(document.querySelectorAll('.ss-championship-show:checked')).map(el => el.value);
 }
+function normalizeChampionshipAward(value) {
+  const raw = cleanLine(value)
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  const aliases = {
+    'bob': 'best of breed',
+    'best breed': 'best of breed',
+    'big': 'best in group',
+    'rbig': 'reserve best in group',
+    'reserve big': 'reserve best in group',
+    'bis': 'best in show',
+    'rbis': 'reserve best in show',
+    'reserve bis': 'reserve best in show',
+    'biss': 'best in show specialty',
+    'rbiss': 'reserve best in show specialty',
+    'reserve biss': 'reserve best in show specialty',
+    'male challenge winner': 'male challenge',
+    'female challenge winner': 'female challenge',
+    'reserve male challenge winner': 'reserve male challenge',
+    'reserve female challenge winner': 'reserve female challenge'
+  };
+
+  return aliases[raw] || raw;
+}
+
 function championshipAwardAllowed(placement, rule) {
   const allowed = CHAMPIONSHIP_AWARD_SETS[rule] || CHAMPIONSHIP_AWARD_SETS['bob-or-better'];
-  const wanted = cleanLine(placement).toLowerCase();
-  return [...allowed].some(value => cleanLine(value).toLowerCase() === wanted);
+  const wanted = normalizeChampionshipAward(placement);
+
+  return [...allowed].some(value =>
+    normalizeChampionshipAward(value) === wanted
+  );
 }
 function formatSeriesShowLabel(show) {
   const round = show.series_round !== null && show.series_round !== undefined ? 'Round ' + show.series_round + ' — ' : '';
@@ -2724,52 +2755,67 @@ async function loadChampionshipShows() {
     '</label>'
   ).join('');
 }
-async function loadRecordsForShowIds(supabase, showIds, showKind) {
+async function loadRecordsForShowIds(supabase, showIds, showKind, sourceShows = []) {
   /*
-    Championship qualifier loads can involve a lot of show_records. The old
-    implementation queried up to 100 uploads in one large IN() statement,
-    which can hit Supabase/Postgres statement_timeout on a large registry.
+    Championship source records exist in two generations on SS:
+      1) current records linked by upload_id;
+      2) older records that may only carry show_name / animal_number.
 
-    Load one source upload at a time and page its records. This keeps every
-    database statement small and lets Championship mode work even for long
-    series with many source shows.
+    Load one source show at a time to avoid statement_timeout, then fall back to
+    show_name ONLY when that selected upload has no linked records. This avoids
+    silently dropping otherwise valid historical qualifiers.
   */
   const all = [];
+  const seenRecordKeys = new Set();
   const kind = showKind || 'conformation';
   const pageSize = 500;
+  const showById = new Map((sourceShows || []).map(show => [String(show.id), show]));
 
-  for (const rawUploadId of (showIds || [])) {
-    const uploadId = String(rawUploadId || '').trim();
-    if (!uploadId) continue;
+  function pushRows(rows) {
+    (rows || []).forEach(row => {
+      const key = [
+        String(row.upload_id || ''),
+        String(row.animal_id || ''),
+        String(row.animal_number || ''),
+        String(row.show_name || ''),
+        String(row.class || ''),
+        String(row.placement || '')
+      ].join('||');
 
+      if (seenRecordKeys.has(key)) return;
+      seenRecordKeys.add(key);
+      all.push(row);
+    });
+  }
+
+  async function pagedLoad(buildQuery, label) {
     let from = 0;
+    let loaded = 0;
 
     while (true) {
       const to = from + pageSize - 1;
 
-      let query = supabase
-        .from('show_records')
-        .select('upload_id, animal_id, placement, class, activity_key, score, max_score, passed, score_label')
-        .eq('upload_id', uploadId)
+      let query = buildQuery(
+        supabase
+          .from('show_records')
+          .select('upload_id, animal_id, animal_number, show_name, placement, class, activity_key, score, max_score, passed, score_label')
+      )
         .eq('show_type', kind)
         .range(from, to);
 
       let { data, error } = await query;
 
-      /*
-        Legacy-schema fallback: some older databases do not have the activity
-        score fields. Keep Championship qualification usable there too.
-      */
       if (
         error &&
         /activity_key|score|max_score|passed|score_label|column/i.test(
           String(error.message || '')
         )
       ) {
-        const retry = await supabase
-          .from('show_records')
-          .select('upload_id, animal_id, placement, class')
-          .eq('upload_id', uploadId)
+        const retry = await buildQuery(
+          supabase
+            .from('show_records')
+            .select('upload_id, animal_id, animal_number, show_name, placement, class')
+        )
           .eq('show_type', kind)
           .range(from, to);
 
@@ -2778,24 +2824,84 @@ async function loadRecordsForShowIds(supabase, showIds, showKind) {
       }
 
       if (error) {
-        throw new Error(
-          'Qualifier record load failed for source show ' +
-          uploadId +
-          ': ' +
-          error.message
-        );
+        throw new Error('Qualifier record load failed for ' + label + ': ' + error.message);
       }
 
       const rows = data || [];
-      all.push(...rows);
+      pushRows(rows);
+      loaded += rows.length;
 
       if (rows.length < pageSize) break;
       from += pageSize;
+    }
+
+    return loaded;
+  }
+
+  for (const rawUploadId of (showIds || [])) {
+    const uploadId = String(rawUploadId || '').trim();
+    if (!uploadId) continue;
+
+    const linkedCount = await pagedLoad(
+      query => query.eq('upload_id', uploadId),
+      'source upload ' + uploadId
+    );
+
+    if (!linkedCount) {
+      const sourceShow = showById.get(uploadId);
+      const showName = cleanLine(sourceShow && sourceShow.show_name);
+
+      if (showName) {
+        await pagedLoad(
+          query => query.eq('show_name', showName),
+          'legacy source show "' + showName + '"'
+        );
+      }
     }
   }
 
   return all;
 }
+async function resolveChampionshipRecordAnimalIds(supabase, records) {
+  const unresolvedNumbers = [...new Set(
+    (records || [])
+      .filter(record => !record.animal_id && record.animal_number !== null && record.animal_number !== undefined && record.animal_number !== '')
+      .map(record => Number(record.animal_number))
+      .filter(Number.isFinite)
+  )];
+
+  if (!unresolvedNumbers.length) return records || [];
+
+  const numberToId = new Map();
+  const chunkSize = 100;
+
+  for (let i = 0; i < unresolvedNumbers.length; i += chunkSize) {
+    const chunk = unresolvedNumbers.slice(i, i + chunkSize);
+
+    const { data, error } = await supabase
+      .from('animals')
+      .select('id, animal_number')
+      .in('animal_number', chunk);
+
+    if (error) {
+      throw new Error('Legacy Championship animal-number lookup failed: ' + error.message);
+    }
+
+    (data || []).forEach(animal => {
+      numberToId.set(String(animal.animal_number), String(animal.id));
+    });
+  }
+
+  return (records || []).map(record => {
+    if (record.animal_id) return record;
+
+    const resolvedId = numberToId.get(String(record.animal_number));
+    return resolvedId
+      ? Object.assign({}, record, { animal_id: resolvedId })
+      : record;
+  });
+}
+
 async function loadChampionshipAnimals(supabase, animalIds) {
   const animals = [];
   const chunkSize = 100;
@@ -2937,7 +3043,14 @@ async function buildConformationChampionshipQualifiers(showData, previewOnly) {
   if (!showIds.length) throw new Error('Please select at least one source show.');
 
   const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
-  const records = await loadRecordsForShowIds(supabase, showIds, 'conformation');
+  const loadedRecords = await loadRecordsForShowIds(
+    supabase,
+    showIds,
+    'conformation',
+    sourceShows
+  );
+  const records = await resolveChampionshipRecordAnimalIds(supabase, loadedRecords);
+
   const qualifyingRecords = records.filter(record =>
     record.animal_id && championshipAwardAllowed(record.placement, rule)
   );
@@ -2963,7 +3076,15 @@ async function buildConformationChampionshipQualifiers(showData, previewOnly) {
 
     const breedName = normalizeBreedName(animal.breed || '');
     let groupName = breedGroupLookup.get(breedName.toLowerCase()) || null;
-    const className = cleanLine(record.class) || (String(animal.gender || '').toLowerCase().startsWith('f') ? 'Class 1a' : 'Class 1');
+
+    const storedClass = cleanLine(record.class);
+    const storedClassIsAward = championshipAwardAllowed(storedClass, 'challenge-or-better') ||
+      /^(?:reserve\s+)?best\s+/i.test(storedClass);
+
+    const className =
+      storedClass && !storedClassIsAward && isClassLine(storedClass)
+        ? storedClass
+        : (String(animal.gender || '').toLowerCase().startsWith('f') ? 'Class 1a' : 'Class 1');
 
     /*
       Fallback for source uploads whose stored result text does not expose the
@@ -3203,7 +3324,13 @@ async function buildActivityChampionshipQualifiers(showData, previewOnly) {
   if (!showIds.length) throw new Error('Please select at least one source show.');
 
   const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
-  const records = await loadRecordsForShowIds(supabase, showIds, 'activity');
+  const loadedRecords = await loadRecordsForShowIds(
+    supabase,
+    showIds,
+    'activity',
+    sourceShows
+  );
+  const records = await resolveChampionshipRecordAnimalIds(supabase, loadedRecords);
 
   const qualifyingRecords = records.filter(record =>
     record.animal_id &&
@@ -3303,7 +3430,10 @@ async function previewChampionship() {
         '<strong>' + escapeHtml(preview.seriesName) + '</strong><br>' +
         'Source shows selected: ' + preview.selectedShows.length + '<br>' +
         'Unique qualifiers found: ' + preview.qualifiedCount +
-        (preview.unresolvedCount ? '<br>Could not rebuild from source entries: ' + preview.unresolvedCount : '') +
+        (preview.unresolvedCount
+          ? '<br><strong>Could not rebuild:</strong> ' + preview.unresolvedCount +
+            '<br><small>' + escapeHtml((preview.unresolved || []).slice(0, 12).join('; ')) + '</small>'
+          : '') +
         (breeds ? '<br><br><strong>Breed totals</strong><br>' + breeds : '');
     }
 
