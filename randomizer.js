@@ -4627,13 +4627,17 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
         animal.manual_suffix_titles
       ].filter(Boolean).join(' ');
 
-      const storedCodes = storedTitleText
-        .split(/\s+/)
-        .map(code => String(code || '').toUpperCase().replace(/\./g, '').trim())
-        .filter(Boolean);
+      // CGC titles may be stored on the profile OR already be present in the
+      // pasted entry line. Read both. This is important because SS entries
+      // commonly arrive as e.g. "CGCB Registered Name - Owner".
+      const cgcTitleSource = storedTitleText + ' ' + String(rawEntry || '');
+      const cgcCodesInEntry = new Set(
+        (cgcTitleSource.toUpperCase().match(/\bCGC(?:B|S|G|A|U)?\.?\b/g) || [])
+          .map(code => code.replace(/\./g, ''))
+      );
 
       levels.forEach((level,index)=>{
-        if(!storedCodes.includes(level.code)) return;
+        if(!cgcCodesInEntry.has(level.code)) return;
         // Higher CGC titles imply every earlier level was already earned.
         for(let i=0;i<=index;i++) passed.add(levels[i].key);
       });
@@ -4704,7 +4708,9 @@ async function runTestingSystem(rawData,showData){
       if(!group.length) return;
 
       const level=group[0].cgcLevel;
-      addLine(lines,bold(level.label+' ('+level.code+')'));
+      addLine(lines,'========================================');
+      addLine(lines,bold(level.code + ' — ' + level.label));
+      addLine(lines,'========================================');
       addLine(lines,'');
 
       group.forEach(item=>{
