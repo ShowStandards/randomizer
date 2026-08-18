@@ -197,6 +197,7 @@ const SS_ENTRY_TITLE_CODES = [
   'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
   'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
   'FFA','VBC','VNC','TTC','TTD','ATC',
+  'CGC','CGCB','CGCS','CGCG','CGCA','CGCU',
   'CIHDM','IHDM','ENJ','ENN','ENO','GDM','GDI','GD3L','GDT','GYR',
   'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
   'DCPEC',
@@ -260,7 +261,7 @@ async function loadAnimalsMap(supabase) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from('animals')
-      .select('id, animal_number, name, normalized_name, species, breed')
+      .select('id, animal_number, name, normalized_name, species, breed, manual_prefix_titles, manual_suffix_titles')
       .order('id', { ascending: true })
       .range(from, to);
 
@@ -296,6 +297,8 @@ async function loadAnimalsMap(supabase) {
           name: a.name,
           species: a.species || null,
           breed: a.breed || null,
+          manual_prefix_titles: a.manual_prefix_titles || null,
+          manual_suffix_titles: a.manual_suffix_titles || null,
           key
         });
       }
@@ -4617,15 +4620,37 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
         {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
       ];
       const passed=new Set();
+
+      // Recognize CGC titles already stored directly on the animal profile.
+      const storedTitleText = [
+        animal.manual_prefix_titles,
+        animal.manual_suffix_titles
+      ].filter(Boolean).join(' ');
+
+      const storedCodes = storedTitleText
+        .split(/\s+/)
+        .map(code => String(code || '').toUpperCase().replace(/\./g, '').trim())
+        .filter(Boolean);
+
+      levels.forEach((level,index)=>{
+        if(!storedCodes.includes(level.code)) return;
+        // Higher CGC titles imply every earlier level was already earned.
+        for(let i=0;i<=index;i++) passed.add(levels[i].key);
+      });
+
+      // Merge in prior passed CGC show records too.
       records.forEach(r=>{
         if(r.passed!==true)return;
         const key=cleanLine(r.activity_key).toLowerCase();
         const cls=cleanLine(r.class).toLowerCase();
         const lbl=cleanLine(r.score_label).toLowerCase();
-        levels.forEach(level=>{
-          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()) passed.add(level.key);
+        levels.forEach((level,index)=>{
+          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()){
+            for(let i=0;i<=index;i++) passed.add(levels[i].key);
+          }
         });
       });
+
       cgcLevel=levels.find(level=>!passed.has(level.key))||null;
       if(!cgcLevel){declined.push({entry:rawEntry,reason:'All CGC levels already earned'});continue;}
       const i=levels.findIndex(level=>level.key===cgcLevel.key);
