@@ -2725,34 +2725,73 @@ async function loadChampionshipShows() {
   ).join('');
 }
 async function loadRecordsForShowIds(supabase, showIds, showKind) {
+  /*
+    Championship qualifier loads can involve a lot of show_records. The old
+    implementation queried up to 100 uploads in one large IN() statement,
+    which can hit Supabase/Postgres statement_timeout on a large registry.
+
+    Load one source upload at a time and page its records. This keeps every
+    database statement small and lets Championship mode work even for long
+    series with many source shows.
+  */
   const all = [];
-  const chunkSize = 100;
   const kind = showKind || 'conformation';
+  const pageSize = 500;
 
-  for (let i = 0; i < showIds.length; i += chunkSize) {
-    const chunk = showIds.slice(i, i + chunkSize);
+  for (const rawUploadId of (showIds || [])) {
+    const uploadId = String(rawUploadId || '').trim();
+    if (!uploadId) continue;
 
-    let query = supabase
-      .from('show_records')
-      .select('upload_id, animal_id, placement, class, activity_key, score, max_score, passed, score_label')
-      .in('upload_id', chunk)
-      .eq('show_type', kind);
+    let from = 0;
 
-    let { data, error } = await query;
+    while (true) {
+      const to = from + pageSize - 1;
 
-    if (error && /activity_key|score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
-      const retry = await supabase
+      let query = supabase
         .from('show_records')
-        .select('upload_id, animal_id, placement, class')
-        .in('upload_id', chunk)
-        .eq('show_type', kind);
+        .select('upload_id, animal_id, placement, class, activity_key, score, max_score, passed, score_label')
+        .eq('upload_id', uploadId)
+        .eq('show_type', kind)
+        .range(from, to);
 
-      data = retry.data;
-      error = retry.error;
+      let { data, error } = await query;
+
+      /*
+        Legacy-schema fallback: some older databases do not have the activity
+        score fields. Keep Championship qualification usable there too.
+      */
+      if (
+        error &&
+        /activity_key|score|max_score|passed|score_label|column/i.test(
+          String(error.message || '')
+        )
+      ) {
+        const retry = await supabase
+          .from('show_records')
+          .select('upload_id, animal_id, placement, class')
+          .eq('upload_id', uploadId)
+          .eq('show_type', kind)
+          .range(from, to);
+
+        data = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        throw new Error(
+          'Qualifier record load failed for source show ' +
+          uploadId +
+          ': ' +
+          error.message
+        );
+      }
+
+      const rows = data || [];
+      all.push(...rows);
+
+      if (rows.length < pageSize) break;
+      from += pageSize;
     }
-
-    if (error) throw new Error('Qualifier record load failed: ' + error.message);
-    all.push(...(data || []));
   }
 
   return all;
