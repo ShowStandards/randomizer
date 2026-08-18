@@ -2630,7 +2630,8 @@ function selectedChampionshipShowIds() {
 }
 function championshipAwardAllowed(placement, rule) {
   const allowed = CHAMPIONSHIP_AWARD_SETS[rule] || CHAMPIONSHIP_AWARD_SETS['bob-or-better'];
-  return allowed.has(cleanLine(placement));
+  const wanted = cleanLine(placement).toLowerCase();
+  return [...allowed].some(value => cleanLine(value).toLowerCase() === wanted);
 }
 function formatSeriesShowLabel(show) {
   const round = show.series_round !== null && show.series_round !== undefined ? 'Round ' + show.series_round + ' — ' : '';
@@ -2705,10 +2706,12 @@ async function loadChampionshipShows() {
   }
 
   const wantedKind = currentShowKind();
-  championshipShowsCache = (data || []).filter(show =>
-    String(show.show_scope || '').toLowerCase() !== 'championship' &&
-    String(show.show_type || '').toLowerCase() === wantedKind
-  );
+  championshipShowsCache = (data || []).filter(show => {
+    const scope = cleanLine(show.show_scope).toLowerCase();
+    const type = cleanLine(show.show_type).toLowerCase();
+
+    return scope !== 'championship' && type === wantedKind;
+  });
   if (!championshipShowsCache.length) {
     list.innerHTML = '<small>No eligible source shows were found in this series.</small>';
     return;
@@ -2920,8 +2923,46 @@ async function buildConformationChampionshipQualifiers(showData, previewOnly) {
     }
 
     const breedName = normalizeBreedName(animal.breed || '');
-    const groupName = breedGroupLookup.get(breedName.toLowerCase());
+    let groupName = breedGroupLookup.get(breedName.toLowerCase()) || null;
     const className = cleanLine(record.class) || (String(animal.gender || '').toLowerCase().startsWith('f') ? 'Class 1a' : 'Class 1');
+
+    /*
+      Fallback for source uploads whose stored result text does not expose the
+      breed heading in the expected shape. Search the selected source-show text
+      for a "Breeds:" line containing the registry breed and use the nearest
+      preceding recognized group heading.
+    */
+    if (breedName && !groupName) {
+      const breedKey = breedName.toLowerCase();
+
+      for (const sourceShow of sourceShows) {
+        let currentGroup = null;
+        const sourceLines = sourceLinesForShow(sourceShow).map(championshipHeadingText);
+
+        for (const sourceLine of sourceLines) {
+          const normalizedGroup = normalizeGroupName(sourceLine);
+          if (SS_CONFIG.groupOrder.includes(normalizedGroup)) {
+            currentGroup = normalizedGroup;
+            continue;
+          }
+
+          const breedList = sourceLine.match(/^Breeds:\s*(.+)$/i);
+          if (
+            currentGroup &&
+            breedList &&
+            breedList[1]
+              .split(',')
+              .map(value => normalizeBreedName(value).toLowerCase())
+              .includes(breedKey)
+          ) {
+            groupName = currentGroup;
+            break;
+          }
+        }
+
+        if (groupName) break;
+      }
+    }
 
     if (!breedName || !groupName) {
       unresolved.push((animal.name || animalId) + ' (breed/group not found)');
@@ -3160,7 +3201,11 @@ async function buildActivityChampionshipQualifiers(showData, previewOnly) {
 }
 
 async function buildChampionshipQualifiers(showData, previewOnly) {
-  if (selectedEventCategory() === 'activities') {
+  // Use the show snapshot created when Run/Preview was clicked. Do not rely on
+  // a live hidden UI field that can be reset while championship controls load.
+  const category = cleanLine(showData && showData.eventCategory).toLowerCase();
+
+  if (category === 'activities' || category === 'activity') {
     return buildActivityChampionshipQualifiers(showData, previewOnly);
   }
 
