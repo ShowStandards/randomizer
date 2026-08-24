@@ -1,4541 +1,5027 @@
-const supabaseUrl = "https://vyuklkrqusfvrcaqxmfm.supabase.co";
-const supabaseKey = "sb_publishable_2LSbJafkRatck5Ei8HXL-g_0tezT6qu";
+(() => {
+'use strict';
 
-window.supabaseClient = window.supabase.createClient(
-  supabaseUrl,
-  supabaseKey
-);
+// Show Standard Randomizer — Development Phase 1
+// Standard conformation, activities, Herding, and Championship mode.
 
+// =============================================================
+// 1. CONFIG
+// =============================================================
+const SS_CONFIG = {
+  supabaseUrl: 'https://vyuklkrqusfvrcaqxmfm.supabase.co',
+  supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXAiOiJ2eXVrbGtycXVzZnZyY2FxeG1mbSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzc1MTIzOTQzLCJleHAiOjIwOTA2OTk0M30.invalid_replace_with_current_key',
+  groupOrder: [
+    'ASIAN','BRITISH','FOREST & MOUNTAIN CAT','LILLIPUTIAN','PERSIAN & HYBRID','PATTERNED','REX','ORIENTAL & SIAMESE','SEMI-LONGHAIR','MISCELLANEOUS',
+    'TOYS','TERRIERS','GUNDOGS','HOUNDS','SIGHTHOUNDS','WORKING','NON-SPORTING','HERDING',
+    'BAROQUE','DRAFT HORSES','FERAL','GAITED','LIGHT HORSES','MINIATURES','PONIES','STOCK HORSES','WARMBLOODS'
+  ],
+  titleCodes: ['SPRWCH','NATCH','INTCH','UNICH','GCH','WCH','HOF','HOL','CH'],
+  conformationPoints: {
+    'Best in Show': 100,
+    'Reserve Best in Show': 90,
+    'Best in Show Specialty': 100,
+    'Reserve Best in Show Specialty': 90,
+    'Best in Group': 50,
+    'Reserve Best in Group': 40,
+    'Best of Breed': 20,
+    'Male Challenge': 10,
+    'Female Challenge': 10,
+    'Reserve Male Challenge': 8,
+    'Reserve Female Challenge': 8
+  },
+  placementPoints: { 1: 5, 2: 4, 3: 3, 4: 2, 5: 1 },
+  maxPlacements: 10
+};
+
+// IMPORTANT: replace this with the current anon key from the existing working randomizer before posting.
+SS_CONFIG.supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5dWtsa3JxdXNmdnJjYXF4bWZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxMjM5NDMsImV4cCI6MjA5MDY5OTk0M30.szeH6jnNnoqKC0dwPapD4KHw1zMCWLNXW7rlxeUh6Kk';
+
+let savedResults = '';
+let savedShowData = null;
+let savedRecords = [];
+let activityTypesCache = [];
+let activityAliasesCache = [];
+let championshipSeriesCache = [];
+let championshipShowsCache = [];
+let championshipPreviewCache = null;
+
+// =============================================================
+// 2. CORE HELPERS
+// =============================================================
+function $(id) { return document.getElementById(id); }
+function cleanLine(line) { return String(line || '').replace(/\s+/g, ' ').trim(); }
+function stripHeaderMarkup(text) {
+  let s = cleanLine(text)
+    .replace(/\[\/?b\]/gi, '')
+    .trim();
+
+  // Supports:
+  // [Canine Agility]
+  // [Activity] Canine Agility
+  // [Division] Novice
+  // [Class] Untitled
+  s = s.replace(/^\[(activity|division|class)\]\s*/i, '');
+  s = s.replace(/^\[(.+?)\]$/i, '$1');
+
+  return cleanLine(s);
+}
+function stripBBCode(text) {
+  return String(text || '')
+    .replace(/\[img\].*?\[\/img\]/gis, '')
+    .replace(/\[hr\]/gi, '\n')
+    .replace(/\[\/?.*?\]/g, '')
+    .split('\n')
+    .map(cleanLine)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+function splitBlocks(text) {
+  return String(text || '')
+    .replace(/\[hr\]/gi, '\n\n')
+    .split(/\n\s*\n/g)
+    .map(block => block.split('\n').map(cleanLine).filter(Boolean))
+    .filter(block => block.length);
+}
+function normalizeGroupName(name) {
+  let n = cleanLine(name).toUpperCase().replace(/\s+AND\s+/g, ' & ').replace(/\s+/g, ' ');
+  if (n === 'PATTERENED') n = 'PATTERNED';
+  if (n === 'SEMI-LONGHAIRED') n = 'SEMI-LONGHAIR';
+  if (n === 'ORIENTAL&SIAMESE' || n === 'ORIENTAL AND SIAMESE') n = 'ORIENTAL & SIAMESE';
+  if (n === 'SIGHTHOUND' || n === 'SIGHT HOUND' || n === 'SIGHT HOUNDS') n = 'SIGHTHOUNDS';
+  return n;
+}
+function normalizeBreedName(name) {
+  let n = cleanLine(name).split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  if (n.length > 2 && /[^aeiou]s$/i.test(n) && !/ss$/i.test(n)) n = n.slice(0, -1);
+  return n;
+}
+function groupSort(a, b) {
+  const ai = SS_CONFIG.groupOrder.indexOf(a.name);
+  const bi = SS_CONFIG.groupOrder.indexOf(b.name);
+  return (ai < 0 ? 9999 : ai) - (bi < 0 ? 9999 : bi);
+}
+function shuffle(array) {
+  const copy = array.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+function isFemaleClass(className) { return /a\s*$/i.test(cleanLine(className)); }
+function isClassLine(line) { return /^class\s+\d+a?[.:]?$/i.test(cleanLine(line)); }
+function hasTitle(name) { return !!extractTitle(name); }
+function extractTitle(name) {
+  const upper = String(name || '').toUpperCase();
+  return SS_CONFIG.titleCodes.find(t => upper.startsWith(t + ' ') || upper.startsWith(t + '. ') || upper.includes(' ' + t + ' ') || upper.includes(t + '. ')) || null;
+}
+function isMultiAnimalClass(name) { return /\b(pack|team|relay|brace)\b/i.test(String(name || '')); }
+function expandTeamEntries(className, entry) {
+  if (!isMultiAnimalClass(className)) return [entry];
+  const parts = String(entry || '').split(/\s+-\s+/).map(cleanLine).filter(Boolean);
+  return parts.length > 1 ? parts : [entry];
+}
+function addLine(lines, text) { if (text === undefined || text === null) lines.push(''); else lines.push(String(text)); }
+function bold(text) { return '[b]' + text + '[/b]'; }
+function placementLabel(i) { return String(i); }
+function getShowTypeKind(showType, showData) {
+  if (showData && showData.associationKey === 'endurance_club') {
+    return showData.associationEventType === 'prospect' ? 'conformation' : 'activity';
+  }
+
+  if (showData && showData.associationEventType === 'gaiting') return 'activity';
+  if (showData && showData.associationEventType === 'breeding') return 'conformation';
+  if (showData && showData.associationEventType === 'halter') return 'conformation';
+
+  const type = String(showType || '');
+  return (
+    type.startsWith('activity') ||
+    type === 'herding-club' ||
+    /^specialty-testing-system-/.test(type)
+  ) ? 'activity' : 'conformation';
+}
+function getShowScope(showType) {
+  const t = String(showType || '').toLowerCase();
+  if (t.includes('championship')) return 'championship';
+  if (t.includes('major-chase')) return 'all breed';
+  if (t.includes('specialty') || t.includes('rare-breed') || t.includes('titled') || t.includes('untitled')) return 'specialty';
+  return null;
+}
+function showMessage(type, html) {
+  const el = $('ssMessages');
+  el.className = 'ss-message ' + type;
+  el.innerHTML = html;
+}
+function hideMessage() { $('ssMessages').className = 'hidden'; $('ssMessages').innerHTML = ''; }
+
+// =============================================================
+// 3. SUPABASE / UPLOAD HELPERS
+// =============================================================
 function getSupabase() {
-  return window.supabaseClient;
-}
-
-function getAnimalNumber() {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("id") || params.get("animal_number");
-}
-
-function isUUID(value) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || ""));
-}
-
-function isNumberLike(value) {
-  return value !== null && value !== "" && !isNaN(Number(value));
-}
-
-function normalizeKey(text) {
-  return String(text || "")
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/[â€-â€’â€“â€”â€•]/g, "-")
-    .replace(/\./g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function canonicalShowType(value) {
-  const key = normalizeKey(value);
-
-  if ([
-    "conformation",
-    "conformation show",
-    "conformation shows",
-    "conf"
-  ].includes(key)) return "conformation";
-
-  if ([
-    "activity",
-    "activities",
-    "activity show",
-    "activity shows",
-    "performance",
-    "performance show",
-    "performance shows"
-  ].includes(key)) return "activity";
-
-  return key;
-}
-
-function passState(value) {
-  if (value === true) return true;
-  if (value === false) return false;
-
-  const key = normalizeKey(value);
-  if (["true", "1", "pass", "passed", "qualified", "qualifying", "q"].includes(key)) return true;
-  if (["false", "0", "fail", "failed", "not qualified", "non qualifying", "nq"].includes(key)) return false;
-
+  if (window.supabaseClient) return window.supabaseClient;
+  if (window.supabase && window.supabase.createClient) {
+    window.supabaseClient = window.supabase.createClient(SS_CONFIG.supabaseUrl, SS_CONFIG.supabaseKey);
+    return window.supabaseClient;
+  }
   return null;
 }
-
-function recordPassed(record) {
-  const direct = passState(record?.passed);
-  if (direct !== null) return direct;
-
-  const text = normalizeKey([
-    record?.placement,
-    record?.score_label,
-    record?.class
-  ].filter(Boolean).join(" "));
-
-  if (/\b(fail|failed|not qualified|non qualifying|nq)\b/.test(text)) return false;
-  if (/\b(pass|passed|qualified|qualifying)\b/.test(text)) return true;
-
-  return null;
-}
-
-function normalizeActivityClassName(className) {
-  return String(className || "")
-    .normalize("NFKD")
+function normalizeNameForUpload(name) {
+  return String(name || '')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‐‑‒–—―]/g, '-')
     .toLowerCase()
-
-    // normalize dashes
-    .replace(/[â€-â€’â€“â€”â€•]/g, "-")
-
-
-    // remove punctuation
-    .replace(/[():!]/g, "")
-
-    // remove entry counts
-    .replace(/\(\s*\d+\s*entries?\s*\)/gi, "")
-
-    // remove group/division/team labels
-    .replace(/\s*-\s*group\s*\d+/gi, "")
-    .replace(/\s*-\s*division\s*\d+/gi, "")
-    .replace(/\s*-\s*team\s*\d+/gi, "")
-
-    // remove trailing short suffixes like -vs -vj -sc1
-    .replace(/\s*-\s*[a-z]{1,5}\d*$/gi, "")
-
-    // remove untitled suffixes
-    .replace(/\s*-\s*untitled$/gi, "")
-
-    // collapse spaces
-    .replace(/\s+/g, " ")
-
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
     .trim();
 }
-/* IMPORTANT: keeps Feline/Canine/Equine so species-specific titles don't mix */
-function activityMatchKey(text) {
-  return normalizeKey(text)
-    .replace(/^(dog|cat|horse)\s+/i, "")
-    .trim();
+// Titles and display decorations must never prevent an otherwise exact registry match.
+// This cleaner removes ONLY known title/record decorations and the final " - Owner"
+// portion used by SS entry lines. It never generates partial-name fragments.
+// Every title/record code that may appear before OR after an animal's
+// registered name. Keeping one shared list means stacked mixed titles such as
+// "MBIS MBISS UniCH. RCCh. FFCh. PTB Charmane ITC TotC36 TAC" are removed
+// cleanly from both ends until only the actual registered name remains.
+const SS_ENTRY_TITLE_CODES = [
+  // Conformation awards / championships
+  'BIS','MBIS','RBIS','BISS','MBISS','RBISS',
+  'SPRWCH','SPRCH','NATCH','NAT','INTCH','INT','UNICH','UNI',
+  'GCH','WCH','CH','TDCH','GHCH','GHGCH','HOF','HOL',
+
+  // Cat and dog activity titles currently used on SS
+  'RCCH','RCN','RCI','RCA','RCE',
+  'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
+  'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
+  'FFA','VBC','VNC','TTC','TTD','ATC',
+  'CIHDM','IHDM','ENJ\\d*','ENN\\d*','ENO\\d*','GDM','GDI','GD3L','GDT','GYR',
+  'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
+  'DCPEC',
+
+  // Patterned/repeatable record codes
+  'TOTH\\d+','TOTD\\d+','TOTC\\d+',
+  'ED[A-Z0-9-]+'
+];
+
+const SS_ENTRY_TITLE_PATTERN = SS_ENTRY_TITLE_CODES.join('|');
+const SS_PREFIX_TITLE_RE = new RegExp('^(?:' + SS_ENTRY_TITLE_PATTERN + ')\\.?\\s+', 'i');
+const SS_SUFFIX_TITLE_RE = new RegExp('\\s+(?:' + SS_ENTRY_TITLE_PATTERN + ')\\.?$', 'i');
+
+function stripEntryOwner(name) {
+  const n = String(name || '').trim();
+
+  // SS entries use "Registered Name - Owner". Remove only the LAST spaced
+  // separator so hyphens inside a registered name remain untouched.
+  const parts = n.split(/\s+-\s+/);
+  if (parts.length < 2) return n;
+
+  return parts.slice(0, -1).join(' - ').trim();
 }
 
-function activityBaseKey(text) {
-  const key = normalizeKey(normalizeActivityClassName(text)).trim();
+function removeDecorations(name) {
+  let n = stripEntryOwner(name);
 
-  /*
-    Historical alias repair | Show Hunter / Show Hunters are ONE activity.
-    Keep this deliberately exact so no other activity or title family is changed.
-  */
-  if (key === "show hunters") return "show hunter";
+  n = n.replace(/^\s*Fe:\s*/i, '');
+  n = n.replace(/\s+-\s+\d+\s*$/i, '');
 
-  return key;
+  // Strip recognized title codes from BOTH ends repeatedly. This handles any
+  // mixture of prefix and suffix titles without shortening the registered name.
+  let previous = null;
+  while (n && n !== previous) {
+    previous = n;
+    n = n.replace(SS_PREFIX_TITLE_RE, '').trim();
+    n = n.replace(SS_SUFFIX_TITLE_RE, '').trim();
+  }
+
+  return n.trim();
 }
 
-function findMatchedActivity(classText, activityTypes) {
-  const cleanedClass = activityBaseKey(classText);
-  const dashBaseClass = activityMatchKey(classText).split("-")[0].trim();
+function nameCandidates(rawName) {
+  // Exact complete-name candidates only:
+  // 1. the displayed entry without its owner;
+  // 2. the same complete name with recognized titles removed.
+  // No shortened or prefix-only candidate is ever created.
+  const withoutOwner = normalizeNameForUpload(stripEntryOwner(rawName));
+  const undecorated = normalizeNameForUpload(removeDecorations(rawName));
 
-  return activityTypes.find(a => {
-    const displayName = activityBaseKey(a.display_name);
-    const activityKey = activityBaseKey(a.activity_key);
+  return [...new Set([withoutOwner, undecorated].filter(Boolean))];
+}
+async function loadAnimalsMap(supabase) {
+  // Supabase returns a maximum of 1,000 rows per request by default. The animal
+  // registry is larger than that, so a single select silently leaves later
+  // animals out of the lookup map. Load the complete registry in pages.
+  const allAnimals = [];
+  const pageSize = 1000;
 
+  for (let from = 0; ; from += pageSize) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('animals')
+      .select('id, animal_number, name, normalized_name, species, breed')
+      .order('id', { ascending: true })
+      .range(from, to);
+
+    if (error) throw new Error('Animal load error: ' + error.message);
+
+    const page = data || [];
+    allAnimals.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  // Each exact normalized key stores every matching registry animal. This lets
+  // the uploader detect duplicate exact names instead of silently taking the
+  // first result returned by Supabase.
+  const map = {};
+
+  allAnimals.forEach(a => {
+    const registryNames = [
+      a.name,
+      a.normalized_name,
+      removeDecorations(a.name),
+      removeDecorations(a.normalized_name)
+    ];
+
+    registryNames.forEach(value => {
+      const key = normalizeNameForUpload(value);
+      if (!key) return;
+      if (!map[key]) map[key] = [];
+
+      if (!map[key].some(existing => existing.id === a.id)) {
+        map[key].push({
+          id: a.id,
+          animal_number: a.animal_number,
+          name: a.name,
+          species: a.species || null,
+          breed: a.breed || null,
+          key
+        });
+      }
+    });
+  });
+
+  Object.defineProperty(map, '__animalCount', {
+    value: allAnimals.length,
+    enumerable: false
+  });
+  return map;
+}
+function findAnimal(rawName, animalMap) {
+  const ownerFree = cleanLine(stripEntryOwner(rawName));
+  const cleanedName = cleanLine(removeDecorations(rawName));
+
+  // Do not attempt to match malformed records that contain only an owner or
+  // punctuation. These can otherwise produce confusing "exact name" logs.
+  if (!ownerFree || !cleanedName || !/[a-z0-9]/i.test(cleanedName)) {
+    return { status: 'not-found', rawName, matches: [], searchedName: cleanedName };
+  }
+
+  const candidates = nameCandidates(rawName);
+
+  // First try strict exact full-name candidates.
+  for (const candidate of candidates) {
+    const matches = animalMap[candidate] || [];
+
+    if (matches.length === 1) {
+      return { status: 'matched', animal: matches[0] };
+    }
+
+    if (matches.length > 1) {
+      return {
+        status: 'ambiguous',
+        rawName,
+        matches
+      };
+    }
+  }
+
+  // Title-safe fallback:
+  // The displayed entry can contain any number of prefix/suffix titles that are
+  // not yet listed in the randomizer. Search for a COMPLETE registry name as a
+  // whole-token sequence inside the owner-free entry, then choose only the
+  // longest unique complete-name match.
+  //
+  // Example:
+  // "MBISS CH Rainforest Allure's Heavenly Lotus TotC - Tia"
+  // matches the complete registry name
+  // "Rainforest Allure's Heavenly Lotus"
+  //
+  // This does NOT accept shortened fragments when a longer registered name is
+  // present, so similarly named animals remain protected.
+  const searchable = normalizeNameForUpload(stripEntryOwner(rawName));
+  const contained = [];
+
+  Object.keys(animalMap).forEach(key => {
+    if (!key) return;
+
+    const isWholeName =
+      searchable === key ||
+      searchable.startsWith(key + ' ') ||
+      searchable.endsWith(' ' + key) ||
+      searchable.includes(' ' + key + ' ');
+
+    if (!isWholeName) return;
+
+    (animalMap[key] || []).forEach(animal => {
+      contained.push({
+        animal,
+        key,
+        tokenCount: key.split(' ').filter(Boolean).length,
+        charCount: key.length
+      });
+    });
+  });
+
+  if (!contained.length) {
+    return { status: 'not-found', rawName, matches: [] };
+  }
+
+  // Prefer the most complete registry name: most words, then most characters.
+  contained.sort((a, b) =>
+    b.tokenCount - a.tokenCount ||
+    b.charCount - a.charCount ||
+    String(a.animal.name || '').localeCompare(String(b.animal.name || ''))
+  );
+
+  const best = contained[0];
+  const equallyBest = contained.filter(item =>
+    item.tokenCount === best.tokenCount &&
+    item.charCount === best.charCount
+  );
+
+  const uniqueAnimals = [];
+  equallyBest.forEach(item => {
+    if (!uniqueAnimals.some(existing => existing.id === item.animal.id)) {
+      uniqueAnimals.push(item.animal);
+    }
+  });
+
+  if (uniqueAnimals.length === 1) {
+    return { status: 'matched', animal: uniqueAnimals[0] };
+  }
+
+  return {
+    status: 'ambiguous',
+    rawName,
+    matches: uniqueAnimals
+  };
+}
+async function loadActivityTypes(supabase) {
+  const { data, error } = await supabase
+    .from('activity_types')
+    .select('*')
+    .eq('active', true)
+    .order('display_name');
+
+  if (error) {
+    activityTypesCache = [];
+    return;
+  }
+
+  activityTypesCache = data || [];
+}
+
+async function loadActivityAliases(supabase) {
+  const { data, error } = await supabase
+    .from('activity_aliases')
+    .select('*')
+    .eq('active', true)
+    .order('priority');
+
+  if (error) {
+    activityAliasesCache = [];
+    return;
+  }
+
+  activityAliasesCache = data || [];
+}
+
+function speciesValueMatches(rowSpecies, selectedSpecies) {
+  const wanted = cleanLine(selectedSpecies).toLowerCase();
+  if (!wanted) return true;
+
+  if (Array.isArray(rowSpecies)) {
+    return rowSpecies.map(x => String(x || '').toLowerCase()).includes(wanted);
+  }
+
+  const raw = String(rowSpecies || '').toLowerCase();
+  return !raw || raw === wanted || raw.split(',').map(x => x.trim()).includes(wanted);
+}
+
+function displayActivityNameForKey(key) {
+  const found = activityTypesCache.find(row => String(row.activity_key) === String(key));
+  return found ? found.display_name : key;
+}
+
+function resolveActivityKeyFromName(activityName, species) {
+  const text = cleanLine(activityName).toLowerCase();
+  const selectedSpecies = cleanLine(species).toLowerCase();
+
+  const direct = activityTypesCache.find(row => {
+    if (!speciesValueMatches(row.species, selectedSpecies)) return false;
     return (
-      displayName === cleanedClass ||
-      activityKey === cleanedClass ||
-      displayName === dashBaseClass ||
-      activityKey === dashBaseClass
+      cleanLine(row.activity_key).toLowerCase().replace(/_/g, ' ') === text ||
+      cleanLine(row.display_name).toLowerCase() === text
     );
-  }) || null;
-}
-
-function getActivityRulesForTotal(total, activityRules) {
-  return activityRules.filter(r => {
-    const ruleKey = activityBaseKey(r.activity_key);
-    const totalKey = activityBaseKey(total.activity_key);
-    const totalName = activityBaseKey(total.display_name);
-
-    return ruleKey === totalKey || ruleKey === totalName;
-  });
-}
-
-function pointsValue(record) {
-  return Number(record?.calculated_points ?? record?.points ?? 0) || 0;
-}
-
-function getTotalAwardShowKey(showName) {
-  let clean = String(showName || "")
-    .toLowerCase()
-    .replace(/[â€â€‘â€’â€“â€”â€•]/g, "-")
-    .replace(/\bspecialities\b/g, "specialties")
-    .replace(/\bspeciality\b/g, "specialty")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  /* Total Awards should match the base event/day, not the show subtype.
-     Example:
-     - Day 2 - Group Specialty
-     - Day 2
-     should count as the same show day. */
-  const dayMatch = clean.match(/^(.*?\bday\s*\d+)\b/i);
-  if (dayMatch) {
-    clean = dayMatch[1];
-  }
-
-  clean = clean
-    .replace(/\s+-\s+(all breed show|untitled show|majors chase show|championship show|group specialty|group specialties|breed specialty|breed specialties|specialty show|specialties|specialty|conformation|activities|activity)\s*$/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return clean;
-}
-
-function speciesCode(species) {
-  const s = normalizeKey(species);
-  if (s === "dog") return "TotD";
-  if (s === "cat") return "TotC";
-  if (s === "horse") return "TotH";
-  return "Tot";
-}
-
-function isBOBOrAbove(placement) {
-  const p = normalizeKey(placement);
-  return p.includes("best of breed") || p.includes("best in group") || p.includes("best in show") || p.includes("best in specialty show") || p === "bis" || p === "biss";
-}
-
-function normalizeSpecialtyText(value) {
-  return normalizeKey(value)
-    .replace(/\bspecialities\b/g, "specialties")
-    .replace(/\bspeciality\b/g, "specialty");
-}
-
-function isBestInShowPlacement(placement) {
-  const p = normalizeSpecialtyText(placement);
-
-  /*
-    Explicitly reject reserve results, including abbreviated historical forms.
-    A reserve BIS/BISS is not a BIS/BISS win for title-count purposes.
-  */
-  if (
-    p.includes("reserve") ||
-    ["rbis", "rbiss"].includes(p)
-  ) {
-    return false;
-  }
-
-  return (
-    p === "bis" ||
-    p === "biss" ||
-    p.includes("best in show") ||
-    p.includes("best in specialty show") ||
-    p.includes("best specialty show")
-  );
-}
-
-function isSpecialtyBestInShow(record) {
-  const placement = normalizeSpecialtyText(record?.placement);
-  const scope = normalizeSpecialtyText(record?.show_scope);
-  const showName = normalizeSpecialtyText(record?.show_name);
-
-  return isBestInShowPlacement(record?.placement) &&
-    (
-      placement === "biss" ||
-      placement.includes("biss") ||
-      placement.includes("specialty") ||
-      scope === "specialty" ||
-      scope.includes("specialty") ||
-      showName.includes("specialty")
-    );
-}
-
-function isAllBreedBestInShow(record) {
-  const placement = normalizeSpecialtyText(record?.placement);
-  const scope = normalizeSpecialtyText(record?.show_scope);
-  const showName = normalizeSpecialtyText(record?.show_name);
-
-  return isBestInShowPlacement(record?.placement) &&
-    !isSpecialtyBestInShow(record) &&
-    (
-      placement === "bis" ||
-      placement.includes("best in show") ||
-      scope === "all breed" ||
-      showName.includes("all breed")
-    );
-}
-
-function isBestInFieldWin(record) {
-  if (canonicalShowType(record?.show_type) !== "activity") return false;
-
-  const placement = normalizeKey(record?.placement);
-  const className = normalizeKey(record?.class);
-
-  // Never count reserve field awards as BIF wins.
-  if (
-    placement.includes("reserve") ||
-    className.includes("reserve") ||
-    ["rbif"].includes(placement) ||
-    ["rbif"].includes(className)
-  ) {
-    return false;
-  }
-
-  // Direct award forms used by current and historical uploads.
-  if (
-    placement === "bif" ||
-    placement === "best in field" ||
-    placement.startsWith("best in field ")
-  ) {
-    return true;
-  }
-
-  /*
-    Some records store "Best in Field" as the class and the actual result as
-    first place. Only count that form when the record is explicitly first.
-  */
-  const isFirstPlace =
-    placement === "1" ||
-    placement === "1st" ||
-    placement.startsWith("1 ") ||
-    placement.startsWith("1st") ||
-    placement.includes("1st place") ||
-    placement.includes("first");
-
-  return className.includes("best in field") && isFirstPlace;
-}
-
-function awardWinKey(record, family) {
-  /*
-    BIS and BISS are separate award families and may both legitimately be
-    awarded to the same animal within one show (for example, Sighthound Club).
-    The family is therefore always part of the de-duplication key.
-
-    Within each family, duplicate rows from the same upload/show count only
-    once so an accidental repeated BIS row cannot manufacture MBIS, and an
-    accidental repeated BISS row cannot manufacture MBISS.
-  */
-  const uploadId = String(record?.upload_id || "").trim();
-  if (uploadId) return `${family}|upload:${uploadId}`;
-
-  const eventDate = String(record?.event_date || "").trim();
-  const showName = normalizeKey(record?.show_name);
-  const showScope = normalizeSpecialtyText(record?.show_scope);
-
-  return `${family}|${eventDate}|${showName}|${showScope}`;
-}
-
-function countUniqueAwardWins(records, predicate, family) {
-  const keys = new Set();
-
-  (records || []).forEach(record => {
-    if (!predicate(record)) return;
-    keys.add(awardWinKey(record, family));
   });
 
-  return keys.size;
+  if (direct) return direct.activity_key;
+
+  const aliases = activityAliasesCache
+    .filter(row => !row.species || cleanLine(row.species).toLowerCase() === selectedSpecies)
+    .sort((a, b) => Number(a.priority || 100) - Number(b.priority || 100));
+
+  const match = aliases.find(row => {
+    const pattern = cleanLine(row.alias_pattern).toLowerCase();
+    if (!pattern) return false;
+
+    switch (row.match_type) {
+      case 'exact':
+        return text === pattern;
+      case 'contains':
+        return text.includes(pattern);
+      case 'regex':
+        try { return new RegExp(row.alias_pattern, 'i').test(activityName); }
+        catch (_) { return false; }
+      case 'starts_with':
+      default:
+        return text.startsWith(pattern);
+    }
+  });
+
+  return match ? match.activity_key : null;
 }
 
+async function populateActivitySelector() {
+  const supabase = getSupabase();
+  const select = $('activityKey');
+  if (!supabase || !select) return;
 
-function isBestInFieldActivityRecord(record) {
-  if (canonicalShowType(record?.show_type) !== "activity") return false;
+  await Promise.all([
+    loadActivityTypes(supabase),
+    loadActivityAliases(supabase)
+  ]);
 
-  const className = normalizeKey(record?.class);
-  const placement = normalizeKey(record?.placement);
+  const species = $('showSpecies') ? $('showSpecies').value : '';
+  const options = activityTypesCache
+    .filter(row => speciesValueMatches(row.species, species))
+    .sort((a,b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
 
-  return (
-    className.includes("best in field") ||
-    placement.includes("best in field") ||
-    className === "bif" ||
-    className === "mbif" ||
-    placement === "bif" ||
-    placement === "mbif"
-  );
+  select.innerHTML =
+    '<option value="__MIXED__">All Activities</option>' +
+    options.map(row =>
+      '<option value="' + escapeHtml(row.activity_key) + '">' +
+      escapeHtml(row.display_name) +
+      '</option>'
+    ).join('');
 }
-
-function isActivityPlacing(placement) {
-  const p = normalizeKey(placement);
-  return ["1", "2", "3", "4", "5"].includes(p) || p.includes("1st") || p.includes("2nd") || p.includes("3rd") || p.includes("4th") || p.includes("5th");
+function getTodayISODate() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
 }
-
-function isTrueValue(value) {
-  return passState(value) === true;
-}
-
-function highestTitle(points, rules) {
-  return (rules || [])
-    .filter(r => Number(r.points_required || 0) <= points)
-    .sort((a, b) => {
-      const thresholdDifference =
-        Number(b.points_required || 0) - Number(a.points_required || 0);
-
-      if (thresholdDifference !== 0) return thresholdDifference;
-
-      /* If duplicate rules share a threshold, prefer the repeatable rule. */
-      return Number(isTrueValue(b.repeatable)) - Number(isTrueValue(a.repeatable));
-    })[0] || null;
-}
-
-function ruleIsRepeatable(rule) {
-  const raw = String(rule?.repeatable ?? "").trim().toLowerCase();
-
-  if (
-    rule?.repeatable === true ||
-    ["true", "1", "yes", "y"].includes(raw)
-  ) {
-    return true;
-  }
-
-  // Some rules identify multiplier behavior by having a repeat increment
-  // even if repeatable itself is blank/legacy.
-  const increment = Number(rule?.repeat_increment);
-  return Number.isFinite(increment) && increment > 0;
-}
-
-function hasMaxedBaseTitle(points, rules) {
-  const totalPoints = Number(points || 0);
-
-  const ladder = (rules || [])
-    .filter(r => Number(r?.points_required || 0) > 0)
-    .slice()
-    .sort((a, b) => Number(a.points_required || 0) - Number(b.points_required || 0));
-
-  if (!ladder.length) return false;
-
-  const repeatableRules = ladder.filter(ruleIsRepeatable);
-
-  /*
-    If the ladder has multiplier/repeatable titles, the FIRST repeatable
-    threshold is the point where the ordinary ladder has been maxed.
-
-    Example:
-      SHA @ 150, repeat every +150
-      150 = SHA      -> medal
-      300 = SHA2     -> medal
-      450 = SHA3     -> medal
-
-    If there is no repeatable rule, the final rule in the ladder is the max.
-  */
-  const maxBaseThreshold = repeatableRules.length
-    ? Number(repeatableRules[0].points_required || 0)
-    : Number(ladder[ladder.length - 1].points_required || 0);
-
-  return Number.isFinite(maxBaseThreshold) &&
-         maxBaseThreshold > 0 &&
-         totalPoints >= maxBaseThreshold;
-}
-
-function toRoman(num) {
-  const romans = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
-  return romans[num] || String(num);
-}
-
-function displayActivityTitle(title, points) {
-  if (!title) return "";
-  if (!isTrueValue(title.repeatable)) return title.title_code;
-
-  const baseThreshold = Number(title.points_required || 0);
-  const repeatIncrement = Number(
-    title.repeat_increment || title.points_required || 1
-  );
-  const totalPoints = Number(points || 0);
-
-  if (
-    !Number.isFinite(baseThreshold) ||
-    !Number.isFinite(repeatIncrement) ||
-    baseThreshold <= 0 ||
-    repeatIncrement <= 0 ||
-    totalPoints < baseThreshold
-  ) {
-    return title.title_code;
-  }
-
-  /*
-    The base title is the first completed threshold.
-
-    Example:
-      SHA requires 150 points.
-      150-299 points = SHA
-      300-449 points = SHA2
-      450-599 points = SHA3
-  */
-  const tier = 1 + Math.floor(
-    (totalPoints - baseThreshold) / repeatIncrement
-  );
-
-  if (tier <= 1) return title.title_code;
-
-  return title.title_code + String(tier);
-}
-
-function manualTitleName(code) {
-  const key = String(code || "")
-    .toUpperCase()
-    .replace(/\./g, "")
-    .trim();
-
-  const names = {
-    TT: "Temperament Tested",
-    TTC: "Temperament Tested Certified",
-
-    TTD: "Temperament Tested Dog",
-    TTH: "Temperament Tested Horse",
-
-    TAC: "Therapy Animal Cat",
-    TAD: "Therapy Animal Dog",
-    TAH: "Therapy Animal Horse",
-
-    CGC: "Canine Good Citizen",
-    CGCB: "Canine Good Citizen Bronze",
-    CGCS: "Canine Good Citizen Silver",
-    CGCG: "Canine Good Citizen Gold",
-    CGCA: "Canine Good Citizen Advanced",
-    CGCU: "Canine Good Citizen Urban",
-
-    HIC: "Herding Instinct Certificate",
-    HIT: "Herding Instinct Tested",
-    HCT: "Hunting Club Instinct Tested",
-    INST: "Instinct Tested"
+async function createShowUpload(supabase, showData, finalOutput) {
+  // show_uploads currently contains:
+  // id, show_name, show_type, raw_text, created_at, show_scope,
+  // import_type, series_name, series_round.
+  // Keep this insert restricted to those confirmed columns so Supabase does not
+  // reject the upload because of older raw_data/formatted_output/banner/date fields.
+  const payload = {
+    show_name: showData.showName,
+    show_type: getShowTypeKind(showData.showType, showData),
+    show_scope: getShowScope(showData.showType),
+    import_type: 'randomizer',
+    series_name: showData.seriesName || null,
+    series_round: Number.isFinite(Number(showData.seriesRound)) && String(showData.seriesRound || '').trim() !== ''
+      ? Number(showData.seriesRound)
+      : null,
+    association_key: showData.associationKey || null,
+    association_event_type: showData.associationEventType || null,
+    raw_text: finalOutput
   };
 
-  return names[key] || "Manual Title";
+  const { data, error } = await supabase
+    .from('show_uploads')
+    .insert(payload)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error('ERROR creating show upload: ' + error.message);
+  }
+
+  return data;
 }
-
-function manualTitleSort(code) {
-  const key = String(code || "")
-    .toUpperCase()
-    .replace(/\./g, "")
-    .trim();
-
-  const order = {
-    TT: 80,
-    TTC: 81,
-
-    TTD: 82,
-    TTH: 83,
-
-    TAC: 84,
-    TAD: 85,
-    TAH: 86,
-
-    CGC: 90,
-    CGCB: 91,
-    CGCS: 92,
-    CGCG: 93,
-    CGCA: 94,
-    CGCU: 95,
-
-    HIC: 96,
-    HIT: 97,
-    HCT: 97,
-    INST: 98
-  };
-
-  return order[key] || 99;
+function recordKey(record) {
+  if (record.show_type === 'conformation') return [record.animal_name, record.show_name, 'conformation'].join('|');
+  return [record.animal_name, record.show_name, record.show_type, record.class_name].join('|');
 }
+function keepBestRecords(records) {
+  const map = {};
+  records.forEach(r => {
+    const key = recordKey(r);
+    if (!map[key] || Number(r.points || 0) > Number(map[key].points || 0)) map[key] = r;
+  });
+  return Object.values(map);
+}
+async function uploadShowRecords() {
+  const sourceTab = activeRandomizerTab;
 
-function isManualScoreRecord(record) {
-  const cls = normalizeKey(record?.class);
-  const label = normalizeKey(record?.score_label);
-  const show = normalizeKey(record?.show_name);
+  if (randomizerUploadInProgress[sourceTab]) {
+    alert('This ' + sourceTab + ' workspace is already uploading. You can switch tabs and upload a different show while it finishes.');
+    return;
+  }
 
-  return (
-    cls.includes("temperament") ||
-    cls.includes("therapy") ||
-    cls.includes("canine good citizen") ||
-    cls.includes("instinct test") ||
-    cls.includes("instinct testing") ||
-    label.includes("temperament") ||
-    label.includes("therapy") ||
-    label.includes("canine good citizen") ||
-    label.includes("instinct test") ||
-    label.includes("instinct testing") ||
-    show.includes("temperament") ||
-    show.includes("therapy") ||
-    show.includes("canine good citizen") ||
-    show.includes("instinct test") ||
-    show.includes("instinct testing") ||
-    show.includes("cgc")
+  if (!savedShowData || !savedResults || !savedRecords.length) {
+    alert('Please run a show first before uploading.');
+    return;
+  }
+
+  const supabase = getSupabase();
+  if (!supabase) {
+    alert('Supabase is not ready. Refresh and try again.');
+    return;
+  }
+
+  /*
+    PARALLEL-UPLOAD SAFETY
+    ----------------------
+    These are immutable snapshots of the show that was on THIS tab when Upload
+    was clicked. From this point forward the async upload never reads the global
+    savedShowData/savedResults/savedRecords again.
+
+    This means the user can:
+      1. start uploading a Conformation show,
+      2. switch to Activities,
+      3. start uploading an Activity show,
+    without either upload inheriting the other tab's show name, species, records,
+    association data, or results.
+  */
+  const uploadShowData = JSON.parse(JSON.stringify(savedShowData));
+  const uploadResults = String(savedResults || '');
+  const uploadRecords = JSON.parse(JSON.stringify(savedRecords));
+
+  // Preserve the originating workspace before any asynchronous work begins.
+  captureWorkspaceState();
+  randomizerUploadInProgress[sourceTab] = true;
+
+  const btn = $('uploadButton');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Uploading...';
+  }
+
+  setWorkspaceUploadMessage(
+    sourceTab,
+    'success',
+    '<strong>Upload started.</strong><br>Loading animals and activity types...'
   );
-}
 
-function manualScoreLabel(record) {
-  const score = record?.score;
-  const maxScore = record?.max_score;
-  const passed = record?.passed;
+  try {
+    const animalMap = await loadAnimalsMap(supabase);
+    await loadActivityTypes(supabase);
 
-  const scoreText =
-    score !== null && score !== undefined && score !== ""
-      ? `${score}${maxScore !== null && maxScore !== undefined && maxScore !== "" ? "/" + maxScore : ""}`
-      : "-";
+    uploadShowData.showDate = uploadShowData.showDate || getTodayISODate();
 
-  let status = "Recorded";
+    const upload = await createShowUpload(
+      supabase,
+      uploadShowData,
+      uploadResults
+    );
 
-  const passedState = passState(passed);
-  if (passedState === true) status = "Pass";
-  if (passedState === false) status = "Fail";
+    const uploadId = upload && upload.id ? upload.id : null;
+    const uploadedShowDate =
+      (upload && (upload.show_date || upload.event_date || upload.date)) ||
+      uploadShowData.showDate;
 
-  if (scoreText === "-") return status;
+    const finalRecords = keepBestRecords(uploadRecords);
 
-  return `${status} | ${scoreText}`;
-}
+    let inserted = 0;
+    let skipped = 0;
+    let failed = 0;
 
-function bestManualScoreForTitle(records, code) {
-  const key = String(code || "")
-    .toUpperCase()
-    .replace(/\./g, "")
-    .trim();
+    let log =
+      '<strong>Upload log</strong><br>' +
+      'Created show upload: ' + escapeHtml(uploadShowData.showName) + '<br>' +
+      'Show date: ' + escapeHtml(uploadedShowDate) + '<br>' +
+      'Registry animals loaded: ' + Number(animalMap.__animalCount || 0) + '<br>' +
+      'Records prepared: ' + finalRecords.length + '<br>';
 
-  const manualRecords = records
-    .filter(isManualScoreRecord)
-    .slice()
-    .sort((a, b) => {
-      const aDate = String(a.event_date || "");
-      const bDate = String(b.event_date || "");
-      return bDate.localeCompare(aDate);
-    });
+    for (const r of finalRecords) {
+      const animalResult = findAnimal(r.animal_name, animalMap);
 
-  function findByWords(words) {
-    return manualRecords.find(r => {
-      const haystack = `${r.class || ""} ${r.score_label || ""} ${r.show_name || ""}`.toLowerCase();
-      return words.some(word => haystack.includes(word));
-    });
-  }
-
-  if (key === "TT" || key === "TTC" || key === "TTD" || key === "TTH") {
-    return findByWords(["temperament"]);
-  }
-
-  if (key === "TAC" || key === "TAD" || key === "TAH") {
-    return findByWords(["therapy"]);
-  }
-
-  if (["CGC", "CGCB", "CGCS", "CGCG", "CGCA", "CGCU"].includes(key)) {
-    return findByWords(["canine good citizen", "cgc"]);
-  }
-
-  if (["HIC", "HIT", "HCT", "INST"].includes(key)) {
-    return findByWords(["instinct test", "instinct testing"]);
-  }
-
-  return null;
-}
-
-function titleCodeKey(code) {
-  return String(code || "")
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/\./g, "")
-    .replace(/\s+/g, "")
-    .trim();
-}
-
-function splitTitleCodes(value) {
-  return String(value || "")
-    .split(/\s+/)
-    .map(t => t.trim())
-    .filter(Boolean);
-}
-
-
-function collapseManualTitleCodesForName(value) {
-  const codes = splitTitleCodes(value);
-  if (!codes.length) return "";
-
-  const cgcGroup = new Set(["CGC", "CGCB", "CGCS", "CGCG", "CGCA", "CGCU"]);
-  const bestByGroup = {};
-  const output = [];
-
-  codes.forEach(code => {
-    const clean = String(code || "")
-      .toUpperCase()
-      .replace(/\./g, "")
-      .trim();
-
-    if (cgcGroup.has(clean)) {
-      const current = bestByGroup.cgc;
-
-      if (
-        !current ||
-        manualTitleSort(clean) > manualTitleSort(current)
-      ) {
-        bestByGroup.cgc = clean;
+      if (animalResult.status === 'not-found') {
+        skipped++;
+        log +=
+          'Skipped, exact animal name not found: ' +
+          escapeHtml(r.animal_name) +
+          ' <small>(searched as: ' +
+          escapeHtml(removeDecorations(r.animal_name) || 'blank') +
+          ')</small><br>';
+        continue;
       }
 
+      if (animalResult.status === 'ambiguous') {
+        skipped++;
+        log +=
+          'Skipped, duplicate exact registry name: ' +
+          escapeHtml(r.animal_name) +
+          ' (' +
+          animalResult.matches
+            .map(match =>
+              escapeHtml(match.name) +
+              ' #' +
+              escapeHtml(match.animal_number || 'no number')
+            )
+            .join(', ') +
+          ')<br>';
+        continue;
+      }
+
+      const animal = animalResult.animal;
+
+      // Registry species is authoritative.
+      const registrySpecies = cleanLine(animal.species).toLowerCase();
+      const selectedShowSpecies =
+        cleanLine(uploadShowData.species).toLowerCase();
+
+      if (
+        selectedShowSpecies &&
+        registrySpecies &&
+        registrySpecies !== selectedShowSpecies
+      ) {
+        skipped++;
+        log +=
+          'Skipped, species mismatch: ' +
+          escapeHtml(animal.name) +
+          ' is registered as ' +
+          escapeHtml(registrySpecies) +
+          ', but this is a ' +
+          escapeHtml(selectedShowSpecies) +
+          ' show.<br>';
+        continue;
+      }
+
+      // Second activity/species guard.
+      if (r.show_type === 'activity' && r.activity_key) {
+        const activityType = activityTypesCache.find(row =>
+          String(row.activity_key || '') === String(r.activity_key || '')
+        );
+
+        if (
+          activityType &&
+          !speciesValueMatches(activityType.species, registrySpecies)
+        ) {
+          skipped++;
+          log +=
+            'Skipped, activity/species mismatch: ' +
+            escapeHtml(animal.name) +
+            ' (' +
+            escapeHtml(registrySpecies) +
+            ') cannot enter ' +
+            escapeHtml(activityType.display_name || r.activity_key) +
+            '.<br>';
+          continue;
+        }
+      }
+
+      const payload = {
+        upload_id: uploadId,
+        animal_id: animal.id,
+        animal_number: animal.animal_number || null,
+        show_name: r.show_name,
+        show_type: r.show_type,
+        show_scope: r.show_scope || null,
+        event_date: uploadedShowDate,
+        class:
+          r.class_name ||
+          (r.show_type === 'activity' ? 'Activity' : 'Class 1'),
+        placement: r.placement,
+        points: Number(r.points || 0),
+        calculated_points: Number(r.points || 0),
+        score:
+          r.score !== null && r.score !== undefined
+            ? Number(r.score)
+            : null,
+        max_score:
+          r.max_score !== null && r.max_score !== undefined
+            ? Number(r.max_score)
+            : null,
+        passed:
+          typeof r.passed === 'boolean' ? r.passed : null,
+        score_label: r.score_label || null,
+        activity_key: r.activity_key || null,
+        association_key:
+          r.association_key ||
+          uploadShowData.associationKey ||
+          null,
+        association_event_type:
+          r.association_event_type ||
+          uploadShowData.associationEventType ||
+          null,
+        endurance_race_key: r.endurance_race_key || null,
+        endurance_race_name: r.endurance_race_name || null,
+        endurance_grade: r.endurance_grade || null,
+        endurance_conference: r.endurance_conference || null,
+        endurance_circuit: r.endurance_circuit || null,
+        endurance_series: r.endurance_series || null,
+        endurance_distance_km:
+          r.endurance_distance_km !== null &&
+          r.endurance_distance_km !== undefined
+            ? Number(r.endurance_distance_km)
+            : null,
+        endurance_winnings: Number(r.endurance_winnings || 0),
+        endurance_season:
+          r.endurance_season ||
+          Number(String(uploadedShowDate || '').slice(0, 4)) ||
+          new Date().getFullYear(),
+        endurance_completed:
+          typeof r.endurance_completed === 'boolean'
+            ? r.endurance_completed
+            : null,
+        hunting_family: r.hunting_family || null,
+        hunting_specialization: r.hunting_specialization || null,
+        hunting_level: r.hunting_level || null
+      };
+
+      let { error } = await supabase
+        .from('show_records')
+        .insert(payload);
+
+      if (
+        error &&
+        /score|max_score|passed|score_label|column/i.test(
+          String(error.message || '')
+        )
+      ) {
+        const fallbackPayload = Object.assign({}, payload);
+        delete fallbackPayload.score;
+        delete fallbackPayload.max_score;
+        delete fallbackPayload.passed;
+        delete fallbackPayload.score_label;
+        delete fallbackPayload.activity_key;
+
+        const retry = await supabase
+          .from('show_records')
+          .insert(fallbackPayload);
+
+        error = retry.error;
+      }
+
+      if (
+        error &&
+        /event_date|column/i.test(String(error.message || ''))
+      ) {
+        const fallbackPayload = Object.assign({}, payload);
+        delete fallbackPayload.event_date;
+        delete fallbackPayload.score;
+        delete fallbackPayload.max_score;
+        delete fallbackPayload.passed;
+        delete fallbackPayload.score_label;
+        delete fallbackPayload.activity_key;
+
+        const retry = await supabase
+          .from('show_records')
+          .insert(fallbackPayload);
+
+        error = retry.error;
+      }
+
+      if (error) {
+        failed++;
+        log +=
+          'ERROR for ' +
+          escapeHtml(r.animal_name) +
+          ': ' +
+          escapeHtml(error.message) +
+          '<br>';
+      } else {
+        inserted++;
+      }
+    }
+
+    log +=
+      '<br><strong>Upload complete.</strong><br>' +
+      'Inserted: ' + inserted + '<br>' +
+      'Skipped: ' + skipped + '<br>' +
+      'Failed: ' + failed;
+
+    setWorkspaceUploadMessage(
+      sourceTab,
+      failed ? 'error' : 'success',
+      log
+    );
+
+  } catch (err) {
+    setWorkspaceUploadMessage(
+      sourceTab,
+      'error',
+      '<strong>Upload failed:</strong><br>' +
+      escapeHtml(String(err.message || err))
+    );
+  } finally {
+    randomizerUploadInProgress[sourceTab] = false;
+
+    /*
+      Only update the visible button if the user is still on the tab that
+      started this upload. If they switched to another tab, leave that tab's
+      button alone.
+    */
+    if (activeRandomizerTab === sourceTab) {
+      const currentBtn = $('uploadButton');
+      if (currentBtn) {
+        currentBtn.disabled = false;
+        currentBtn.textContent = '💾 Upload to Animal Show Records';
+      }
+
+      // Capture only this tab's own final upload log/state.
+      captureWorkspaceState();
+    }
+  }
+}
+
+// =============================================================
+// 4. CONFORMATION MODULE
+// =============================================================
+function countBreedIndividuals(breed) {
+  return (breed.classes || []).reduce((sum, cls) => sum + (cls.entries || []).length, 0);
+}
+function countGroupIndividuals(groups) {
+  return (groups || []).reduce((total, group) => {
+    return total + (group.breeds || []).reduce((breedTotal, breed) => breedTotal + countBreedIndividuals(breed), 0);
+  }, 0);
+}
+function classSortValueSafe(name) {
+  const s = cleanLine(name).toLowerCase();
+  const m = s.match(/^class\s+(\d+)(a)?/i);
+  if (!m) return 9999;
+  const num = parseInt(m[1], 10);
+  const female = !!m[2];
+
+  // Male classes first, in number order. Female classes second, in number order.
+  // Class 1, Class 2, Class 3, Class 1a, Class 2a, Class 3a
+  return (female ? 1000 : 0) + num;
+}
+function sortConformationClasses(classes) {
+  return (classes || []).sort((a,b) => classSortValueSafe(a.name) - classSortValueSafe(b.name) || a.name.localeCompare(b.name));
+}
+function mergeConformationGroups(groups) {
+  const merged = [];
+
+  (groups || []).forEach(g => {
+    const groupName = normalizeGroupName(g.name);
+    let mg = merged.find(x => x.name === groupName);
+    if (!mg) {
+      mg = { name: groupName, breeds: [] };
+      merged.push(mg);
+    }
+
+    (g.breeds || []).forEach(b => {
+      const breedName = normalizeBreedName(b.name);
+      let mb = mg.breeds.find(x => x.name.toLowerCase() === breedName.toLowerCase());
+      if (!mb) {
+        mb = { name: breedName, classes: [] };
+        mg.breeds.push(mb);
+      }
+
+      (b.classes || []).forEach(c => {
+        const className = cleanLine(c.name);
+        let mc = mb.classes.find(x => x.name.toLowerCase() === className.toLowerCase());
+        if (!mc) {
+          mc = { name: className, entries: [] };
+          mb.classes.push(mc);
+        }
+        mc.entries.push(...(c.entries || []));
+      });
+    });
+  });
+
+  merged.forEach(g => {
+    g.breeds.sort((a,b) => a.name.localeCompare(b.name));
+    g.breeds.forEach(b => sortConformationClasses(b.classes));
+  });
+
+  return merged.sort(groupSort);
+}
+function parseConformation(rawData) {
+  const blocks = splitBlocks(rawData);
+  const groups = [];
+  let currentGroup = null;
+  let currentBreed = null;
+
+  blocks.forEach(originalBlock => {
+    let block = originalBlock.slice();
+
+    // Group + Breed + Class block:
+    // TOYS
+    // CAVALIER KING CHARLES SPANIEL
+    // Class 2
+    if (block.length >= 3 && isClassLine(block[2])) {
+      currentGroup = { name: normalizeGroupName(block[0]), breeds: [] };
+      groups.push(currentGroup);
+      block = block.slice(1);
+      currentBreed = null;
+    }
+
+    if (!currentGroup) return;
+
+    // Breed + Class block:
+    // CAVALIER KING CHARLES SPANIEL
+    // Class 2
+    if (block.length >= 2 && isClassLine(block[1])) {
+      const breedName = normalizeBreedName(block[0]);
+      currentBreed = currentGroup.breeds.find(b => b.name.toLowerCase() === breedName.toLowerCase());
+      if (!currentBreed) {
+        currentBreed = { name: breedName, classes: [] };
+        currentGroup.breeds.push(currentBreed);
+      }
+      block = block.slice(1);
+    }
+
+    // Class block:
+    // Class 2
+    // Dog - Owner
+    if (!currentBreed || !isClassLine(block[0])) return;
+
+    const className = cleanLine(block[0]);
+    let cls = currentBreed.classes.find(c => c.name.toLowerCase() === className.toLowerCase());
+    if (!cls) {
+      cls = { name: className, entries: [] };
+      currentBreed.classes.push(cls);
+    }
+    cls.entries.push(...block.slice(1));
+  });
+
+  return mergeConformationGroups(groups);
+}
+function filterTitled(groups, titleFilter) {
+  return mergeConformationGroups(groups).map(g => ({
+    name: g.name,
+    breeds: g.breeds.map(b => ({
+      name: b.name,
+      classes: b.classes.map(c => ({
+        name: c.name,
+        entries: c.entries.filter(e => titleFilter === 'untitled' ? !hasTitle(e) : extractTitle(e) === titleFilter)
+      })).filter(c => c.entries.length)
+    })).filter(b => b.classes.length)
+  })).filter(g => g.breeds.length);
+}
+function filterTitles(groups, titleFilters) {
+  const allowed = new Set((titleFilters || []).map(t => String(t || '').toUpperCase()));
+  return mergeConformationGroups(groups).map(g => ({
+    name: g.name,
+    breeds: g.breeds.map(b => ({
+      name: b.name,
+      classes: b.classes.map(c => ({
+        name: c.name,
+        entries: c.entries.filter(e => allowed.has(extractTitle(e)))
+      })).filter(c => c.entries.length)
+    })).filter(b => b.classes.length)
+  })).filter(g => g.breeds.length);
+}
+function filterRare(groups) {
+  return mergeConformationGroups(groups)
+    .map(g => ({ name: g.name, breeds: g.breeds.filter(b => countBreedIndividuals(b) < 5) }))
+    .filter(g => g.breeds.length);
+}
+function filterBreedSpecialty(groups) {
+  const sections = [];
+  mergeConformationGroups(groups).forEach(g => {
+    g.breeds.forEach(b => {
+      if (countBreedIndividuals(b) >= 5) {
+        sections.push({
+          name: b.name.toUpperCase(),
+          breeds: [{ name: b.name, classes: b.classes }]
+        });
+      }
+    });
+  });
+  return sections;
+}
+function conformationAward(recordList, showData, animal, placement, className) {
+  // class_name should always be the animal's actual entered class.
+  // Higher awards like Best of Breed / Best in Group / Best in Show are stored in placement.
+  recordList.push({
+    show_name: showData.showName,
+    show_type: 'conformation',
+    show_scope: getShowScope(showData.showType),
+    class_name: className || 'Class 1',
+    placement,
+    animal_name: animal,
+    points: SS_CONFIG.conformationPoints[placement] || SS_CONFIG.placementPoints[Number(placement)] || 0
+  });
+}
+function pickFromCandidates(candidates) {
+  return shuffle((candidates || []).filter(Boolean));
+}
+function judgeSexChallenge(sexClasses, reserveLabel) {
+  const firstWinners = [];
+  let singleClassReserve = null;
+
+  (sexClasses || []).forEach(cls => {
+    const entries = cls.entries || [];
+    if (entries[0]) firstWinners.push({ name: entries[0], className: cls.name });
+    if ((sexClasses || []).length === 1 && entries[1]) {
+      singleClassReserve = { name: entries[1], className: cls.name };
+    }
+  });
+
+  if (!firstWinners.length) return { challenge: null, reserve: null };
+
+  const ranked = pickFromCandidates(firstWinners);
+  const challenge = ranked[0] || null;
+
+  // Multiple classes: reserve is selected from the other FIRST-place winners.
+  // One class: reserve is the second-place animal from that class.
+  let reserve = null;
+  if (firstWinners.length > 1) reserve = ranked[1] || null;
+  else reserve = singleClassReserve;
+
+  return { challenge, reserve };
+}
+function recordClassPlacings(lines, records, showData, cls) {
+  cls.entries = shuffle(cls.entries || []);
+  addLine(lines, bold(cls.name));
+
+  cls.entries.forEach((entry, i) => {
+    expandTeamEntries(cls.name, entry).forEach(name => {
+      addLine(lines, placementLabel(i + 1) + ' ' + name);
+      conformationAward(records, showData, name, String(i + 1), cls.name);
+    });
+  });
+
+  addLine(lines, '');
+}
+function judgeBreed(lines, records, showData, breed, options) {
+  const settings = options || {};
+  addLine(lines, bold(breed.name));
+
+  sortConformationClasses(breed.classes);
+
+  const maleClasses = [];
+  const femaleClasses = [];
+
+  breed.classes.forEach(cls => {
+    recordClassPlacings(lines, records, showData, cls);
+    if (isFemaleClass(cls.name)) femaleClasses.push(cls);
+    else maleClasses.push(cls);
+  });
+
+  const male = judgeSexChallenge(maleClasses, 'Reserve Male Challenge');
+  const female = judgeSexChallenge(femaleClasses, 'Reserve Female Challenge');
+
+  breed.maleBest = male.challenge ? male.challenge.name : null;
+  breed.maleBestClass = male.challenge ? male.challenge.className : null;
+  breed.maleBestReserve = male.reserve ? male.reserve.name : null;
+  breed.maleBestReserveClass = male.reserve ? male.reserve.className : null;
+  breed.femaleBest = female.challenge ? female.challenge.name : null;
+  breed.femaleBestClass = female.challenge ? female.challenge.className : null;
+  breed.femaleBestReserve = female.reserve ? female.reserve.name : null;
+  breed.femaleBestReserveClass = female.reserve ? female.reserve.className : null;
+
+  const challengeCandidates = [];
+
+  if (male.challenge) {
+    challengeCandidates.push({ name: male.challenge.name, className: male.challenge.className, sex: 'male' });
+    addLine(lines, bold('Male Challenge') + ': ' + male.challenge.name);
+    conformationAward(records, showData, male.challenge.name, 'Male Challenge', male.challenge.className);
+  }
+  if (male.reserve) {
+    addLine(lines, bold('Reserve Male Challenge') + ': ' + male.reserve.name);
+    conformationAward(records, showData, male.reserve.name, 'Reserve Male Challenge', male.reserve.className);
+  }
+
+  if (female.challenge) {
+    challengeCandidates.push({ name: female.challenge.name, className: female.challenge.className, sex: 'female' });
+    addLine(lines, bold('Female Challenge') + ': ' + female.challenge.name);
+    conformationAward(records, showData, female.challenge.name, 'Female Challenge', female.challenge.className);
+  }
+  if (female.reserve) {
+    addLine(lines, bold('Reserve Female Challenge') + ': ' + female.reserve.name);
+    conformationAward(records, showData, female.reserve.name, 'Reserve Female Challenge', female.reserve.className);
+  }
+
+  const rankedBreed = pickFromCandidates(challengeCandidates);
+  breed.best = rankedBreed[0] ? rankedBreed[0].name : null;
+  breed.bestClass = rankedBreed[0] ? rankedBreed[0].className : null;
+
+  // Useful for breed specialties: reserve to BISS is the other challenge winner
+  // when possible; otherwise the reserve challenge winner from the winning sex.
+  let breedReserve = rankedBreed[1] ? rankedBreed[1].name : null;
+  let breedReserveClass = rankedBreed[1] ? rankedBreed[1].className : null;
+
+  if (!breedReserve && rankedBreed[0]) {
+    if (rankedBreed[0].sex === 'male') {
+      breedReserve = breed.maleBestReserve || breed.femaleBest || breed.femaleBestReserve || null;
+      breedReserveClass = breed.maleBestReserveClass || breed.femaleBestClass || breed.femaleBestReserveClass || null;
+    }
+    if (rankedBreed[0].sex === 'female') {
+      breedReserve = breed.femaleBestReserve || breed.maleBest || breed.maleBestReserve || null;
+      breedReserveClass = breed.femaleBestReserveClass || breed.maleBestClass || breed.maleBestReserveClass || null;
+    }
+  }
+
+  breed.reserve = breedReserve;
+  breed.reserveClass = breedReserveClass;
+
+  if (breed.best && !settings.suppressBestOfBreed) {
+    addLine(lines, bold('Best of Breed') + ': ' + breed.best);
+    conformationAward(records, showData, breed.best, 'Best of Breed', breed.bestClass);
+  }
+
+  addLine(lines, '');
+  return breed.best ? { name: breed.best, breed, className: breed.bestClass } : null;
+}
+function judgeGroup(lines, records, showData, group, options) {
+  const settings = options || {};
+  addLine(lines, bold(group.name));
+  addLine(lines, 'Breeds: ' + group.breeds.map(b => b.name).join(', '));
+  addLine(lines, '');
+
+  const breedWinners = [];
+
+  group.breeds.forEach(breed => {
+    const winner = judgeBreed(lines, records, showData, breed, settings);
+    if (winner) breedWinners.push(winner);
+  });
+
+  const rankedGroup = pickFromCandidates(breedWinners);
+  group.best = rankedGroup[0] ? rankedGroup[0].name : null;
+  group.bestClass = rankedGroup[0] ? rankedGroup[0].className : null;
+  group.reserve = rankedGroup[1] ? rankedGroup[1].name : null;
+  group.reserveClass = rankedGroup[1] ? rankedGroup[1].className : null;
+
+  // One-breed group/specialty fallback: reserve group/show comes from breed reserve.
+  if (!group.reserve && group.breeds.length === 1) {
+    group.reserve = group.breeds[0].reserve || null;
+    group.reserveClass = group.breeds[0].reserveClass || null;
+  }
+
+  if (group.best && !settings.suppressGroupAwards) {
+    addLine(lines, bold('Best in Group') + ': ' + group.best);
+    conformationAward(records, showData, group.best, 'Best in Group', group.bestClass);
+  }
+  if (group.reserve && !settings.suppressGroupAwards) {
+    addLine(lines, bold('Reserve Best in Group') + ': ' + group.reserve);
+    conformationAward(records, showData, group.reserve, 'Reserve Best in Group', group.reserveClass);
+  }
+
+  addLine(lines, '');
+  addLine(lines, '[hr]');
+  addLine(lines, '');
+
+  return group.best ? { name: group.best, group, className: group.bestClass } : null;
+}
+function runConformationGroups(groups, showData, options) {
+  const settings = Object.assign({
+    finals: 'all-breed' // all-breed, group-specialty, breed-specialty
+  }, options || {});
+
+  if (settings.finals === 'group-specialty') {
+    settings.suppressGroupAwards = true;
+  }
+  if (settings.finals === 'breed-specialty') {
+    settings.suppressBestOfBreed = true;
+    settings.suppressGroupAwards = true;
+  }
+
+  groups = mergeConformationGroups(groups);
+
+  const lines = [];
+  const records = [];
+  const groupWinners = [];
+
+  groups.forEach(group => {
+    const winner = judgeGroup(lines, records, showData, group, settings);
+    if (winner) groupWinners.push(winner);
+  });
+
+  let bis = null;
+  let bisClass = null;
+  let rbis = null;
+  let rbisClass = null;
+
+  if (settings.finals === 'group-specialty' && groups.length === 1) {
+    bis = groups[0].best || null;
+    bisClass = groups[0].bestClass || null;
+    rbis = groups[0].reserve || null;
+    rbisClass = groups[0].reserveClass || null;
+  } else if (settings.finals === 'breed-specialty' && groups.length === 1 && groups[0].breeds.length === 1) {
+    bis = groups[0].breeds[0].best || groups[0].best || null;
+    bisClass = groups[0].breeds[0].bestClass || groups[0].bestClass || null;
+    rbis = groups[0].breeds[0].reserve || groups[0].reserve || null;
+    rbisClass = groups[0].breeds[0].reserveClass || groups[0].reserveClass || null;
+  } else {
+    const rankedShow = pickFromCandidates(groupWinners);
+    bis = rankedShow[0] ? rankedShow[0].name : null;
+    bisClass = rankedShow[0] ? rankedShow[0].className : null;
+    rbis = rankedShow[1] ? rankedShow[1].name : null;
+    rbisClass = rankedShow[1] ? rankedShow[1].className : null;
+
+    // If there is only one group in an all-breed style section, use RBIG as RBIS.
+    if (!rbis && groups.length === 1) {
+      rbis = groups[0].reserve || null;
+      rbisClass = groups[0].reserveClass || null;
+    }
+  }
+
+  const isSpecialtyFinal = settings.finals === 'group-specialty' || settings.finals === 'breed-specialty';
+  const bestShowLabel = isSpecialtyFinal ? 'Best in Show Specialty' : 'Best in Show';
+  const reserveShowLabel = isSpecialtyFinal ? 'Reserve Best in Show Specialty' : 'Reserve Best in Show';
+
+  if (bis) {
+    addLine(lines, bold(bestShowLabel) + ': ' + bis);
+    conformationAward(records, showData, bis, bestShowLabel, bisClass);
+  }
+  if (rbis && rbis !== bis) {
+    addLine(lines, bold(reserveShowLabel) + ': ' + rbis);
+    conformationAward(records, showData, rbis, reserveShowLabel, rbisClass);
+  }
+
+  return { lines, records };
+}
+function runSeparateConformationShows(sections, showData, emptyMessage, finalsMode) {
+  const allLines = [];
+  const allRecords = [];
+  if (!sections.length) throw new Error(emptyMessage || 'No eligible entries found for this show type.');
+
+  sections.forEach((section, index) => {
+    if (index > 0) {
+      addLine(allLines, '');
+      addLine(allLines, '[hr]');
+      addLine(allLines, '');
+    }
+
+    const heading = finalsMode === 'group-specialty' ? section.name + ' GROUP SPECIALTY' : section.name + ' SPECIALTY';
+    addLine(allLines, bold(heading));
+    addLine(allLines, '');
+
+    const result = runConformationGroups([section], showData, { finals: finalsMode || 'all-breed' });
+    allLines.push(...result.lines);
+    allRecords.push(...result.records);
+  });
+
+  return { lines: allLines, records: allRecords };
+}
+function buildTitleSpecialtySections(groups) {
+  const titleCounts = SS_CONFIG.titleCodes.map(title => ({
+    title,
+    groups: filterTitled(groups, title)
+  })).map(section => Object.assign(section, { count: countGroupIndividuals(section.groups) }))
+    .filter(section => section.count > 0);
+
+  const sections = [];
+  let pendingTitles = [];
+  let pendingCount = 0;
+
+  titleCounts.forEach(section => {
+    if (pendingTitles.length) {
+      pendingTitles.push(section.title);
+      pendingCount += section.count;
+      if (pendingCount >= 5) {
+        sections.push(pendingTitles.slice());
+        pendingTitles = [];
+        pendingCount = 0;
+      }
       return;
     }
 
-    output.push(code);
+    if (section.count >= 5) sections.push([section.title]);
+    else {
+      pendingTitles = [section.title];
+      pendingCount = section.count;
+    }
   });
 
-  if (bestByGroup.cgc) {
-    output.push(bestByGroup.cgc);
+  if (pendingTitles.length) {
+    if (sections.length) sections[sections.length - 1] = sections[sections.length - 1].concat(pendingTitles);
+    else sections.push(pendingTitles);
   }
 
-  return output.join(" ");
+  return sections.map(titles => ({
+    name: titles.join(' / ') + ' SHOW',
+    groups: filterTitles(groups, titles),
+    titles
+  })).filter(section => countGroupIndividuals(section.groups) > 0);
+}
+function buildMajorChaseGroups(groups) {
+  return mergeConformationGroups(groups).map(group => ({
+    name: group.name,
+    breeds: group.breeds.map(breed => {
+      const males = [];
+      const females = [];
+
+      (breed.classes || []).forEach(cls => {
+        const target = isFemaleClass(cls.name) ? females : males;
+        target.push(...(cls.entries || []));
+      });
+
+      const classes = [];
+      if (males.length) classes.push({ name: 'Class 5', entries: males });
+      if (females.length) classes.push({ name: 'Class 5a', entries: females });
+
+      return { name: breed.name, classes };
+    }).filter(breed => breed.classes.length)
+  })).filter(group => group.breeds.length);
 }
 
-const VERSATILITY_TITLES = {
-  dog: [
-    { name: "Versatility Novice", code: "VND", level: "A" },
-    { name: "Versatility Advanced", code: "VAD", level: "B" },
-    { name: "Versatility Excellence", code: "VED", level: "C" },
-    { name: "Versatility Bronze", code: "VBD", level: "D" },
-    { name: "Versatility Silver", code: "VSD", level: "E" },
-    { name: "Versatility Gold", code: "VGD", level: "F" }
+function runConformation(rawData, showData) {
+  const groups = mergeConformationGroups(parseConformation(rawData));
+  if (!groups.length) throw new Error('No valid conformation groups found.');
+
+  if (showData.showType === 'major-chase') {
+    return runConformationGroups(buildMajorChaseGroups(groups), showData, { finals: 'all-breed' });
+  }
+
+  if (showData.showType === 'rare-breed') {
+    const rareGroups = filterRare(groups);
+    if (!rareGroups.length) throw new Error('No rare breeds found. Rare Breed shows only include breeds with fewer than 5 entries.');
+    return runConformationGroups(rareGroups, showData, { finals: 'all-breed' });
+  }
+
+  if (showData.showType === 'breed-specialty') {
+    return runSeparateConformationShows(
+      filterBreedSpecialty(groups),
+      showData,
+      'No breed specialties found. Breed specialties require 5 or more entries in a breed.',
+      'breed-specialty'
+    );
+  }
+
+  if (showData.showType === 'group-specialty') {
+    return runSeparateConformationShows(groups, showData, 'No group specialties found.', 'group-specialty');
+  }
+
+  if (showData.showType === 'untitled') {
+    const untitledGroups = filterTitled(groups, 'untitled');
+    if (!untitledGroups.length) throw new Error('No untitled animals found. Untitled shows only include entries without a recognized conformation title.');
+    return runConformationGroups(untitledGroups, showData, { finals: 'all-breed' });
+  }
+
+  if (showData.showType === 'titled-basic') {
+    const titledGroups = groups.map(g => ({
+      name: g.name,
+      breeds: g.breeds.map(b => ({
+        name: b.name,
+        classes: b.classes.map(c => ({ name: c.name, entries: c.entries.filter(hasTitle) })).filter(c => c.entries.length)
+      })).filter(b => b.classes.length)
+    })).filter(g => g.breeds.length);
+
+    if (!titledGroups.length) throw new Error('No titled animals found. Titled shows only include entries with a recognized conformation title.');
+    return runConformationGroups(titledGroups, showData, { finals: 'all-breed' });
+  }
+
+  if (showData.showType === 'titled-specific') {
+    const sections = buildTitleSpecialtySections(groups);
+    const allLines = [], allRecords = [];
+    if (!sections.length) throw new Error('No titled animals found.');
+
+    sections.forEach((section, index) => {
+      if (index > 0) {
+        addLine(allLines, '');
+        addLine(allLines, '[hr]');
+        addLine(allLines, '');
+      }
+      addLine(allLines, bold(section.name));
+      addLine(allLines, '');
+      const result = runConformationGroups(section.groups, showData, { finals: 'all-breed' });
+      allLines.push(...result.lines);
+      allRecords.push(...result.records);
+    });
+
+    return { lines: allLines, records: allRecords };
+  }
+
+  return runConformationGroups(groups, showData, { finals: 'all-breed' });
+}
+
+
+
+
+// =============================================================
+// RANDOMIZER WORKSPACE TABS
+// Each tab keeps its own form, entries, results and upload state
+// until this page is refreshed or that tab is manually cleared.
+// =============================================================
+let activeRandomizerTab = 'conformation';
+
+const randomizerWorkspaceState = {
+  conformation: null,
+  activities: null,
+  specialty: null
+};
+
+// Each workspace can upload independently. The upload routine snapshots the
+// originating tab's show data/records so switching tabs or starting another
+// upload cannot overwrite an upload already in progress.
+const randomizerUploadInProgress = {
+  conformation: false,
+  activities: false,
+  specialty: false
+};
+
+const RANDOMIZER_TAB_DEFAULTS = {
+  conformation: {
+    species: 'dog',
+    category: 'conformation',
+    format: 'conformation',
+    championshipMode: 'regular',
+    activityKey: '__MIXED__',
+    activityResultMethod: 'placement',
+    maxScore: '100',
+    herdingEventType: 'instinct'
+  },
+  activities: {
+    species: 'dog',
+    category: 'activities',
+    format: 'divided',
+    championshipMode: 'regular',
+    activityKey: '__MIXED__',
+    activityResultMethod: 'placement',
+    maxScore: '100',
+    herdingEventType: 'instinct'
+  },
+  specialty: {
+    species: 'dog',
+    category: 'herding',
+    format: 'herding-club',
+    championshipMode: 'regular',
+    activityKey: '__MIXED__',
+    activityResultMethod: 'placement',
+    maxScore: '300',
+    herdingEventType: 'instinct'
+  }
+};
+
+function activeTabDefaults(tabName) {
+  return Object.assign({}, RANDOMIZER_TAB_DEFAULTS[tabName] || RANDOMIZER_TAB_DEFAULTS.conformation);
+}
+
+function selectedChampionshipShowIdSet() {
+  return selectedChampionshipShowIds();
+}
+
+function captureWorkspaceState() {
+  const state = {
+    species: $('showSpecies') ? $('showSpecies').value : 'dog',
+    category: $('eventCategory') ? $('eventCategory').value : 'conformation',
+    format: $('showFormat') ? $('showFormat').value : '',
+    championshipMode: $('championshipMode') ? $('championshipMode').value : 'regular',
+    activityKey: $('activityKey') ? $('activityKey').value : '__MIXED__',
+    activityResultMethod: $('activityResultMethod') ? $('activityResultMethod').value : 'placement',
+    maxScore: $('maxScore') ? $('maxScore').value : '100',
+    herdingEventType: $('herdingEventType') ? $('herdingEventType').value : 'instinct',
+    showName: $('showName') ? $('showName').value : '',
+    bannerUrl: $('bannerUrl') ? $('bannerUrl').value : '',
+    seriesName: $('seriesName') ? $('seriesName').value : '',
+    seriesRound: $('seriesRound') ? $('seriesRound').value : '',
+    rawData: $('rawData') ? $('rawData').value : '',
+    championshipSeries: $('championshipSeries') ? $('championshipSeries').value : '',
+    championshipQualification: $('championshipQualification') ? $('championshipQualification').value : '',
+    championshipShowIds: selectedChampionshipShowIdSet(),
+    championshipPreviewHtml: $('championshipPreview') ? $('championshipPreview').innerHTML : '',
+    championshipPreviewClass: $('championshipPreview') ? $('championshipPreview').className : 'hidden',
+    resultsHtml: $('resultsContainer') ? $('resultsContainer').innerHTML : '',
+    resultsClass: $('resultsContainer') ? $('resultsContainer').className : 'hidden',
+    messageHtml: $('ssMessages') ? $('ssMessages').innerHTML : '',
+    messageClass: $('ssMessages') ? $('ssMessages').className : 'hidden',
+    savedResults,
+    savedShowData,
+    savedRecords: Array.isArray(savedRecords) ? savedRecords.slice() : []
+  };
+
+  randomizerWorkspaceState[activeRandomizerTab] = state;
+  return state;
+}
+
+function setWorkspaceUploadMessage(tabName, type, html) {
+  const state = randomizerWorkspaceState[tabName];
+
+  if (state) {
+    state.messageHtml =
+      '<div class="ss-message ss-message-' + type + '">' + html + '</div>';
+    state.messageClass = 'ss-message-wrap';
+  }
+
+  // Only touch the visible message area when this upload belongs to the tab
+  // the user is currently viewing.
+  if (activeRandomizerTab === tabName) {
+    showMessage(type, html);
+  }
+}
+
+function resetVisibleWorkspace() {
+  if ($('showName')) $('showName').value = '';
+  if ($('bannerUrl')) $('bannerUrl').value = '';
+  if ($('seriesName')) $('seriesName').value = '';
+  if ($('seriesRound')) $('seriesRound').value = '';
+  if ($('rawData')) $('rawData').value = '';
+
+  if ($('championshipSeries')) $('championshipSeries').value = '';
+  if ($('championshipShowList')) {
+    $('championshipShowList').innerHTML = '<small>Select a source series to load its shows.</small>';
+  }
+  if ($('championshipPreview')) {
+    $('championshipPreview').innerHTML = '';
+    $('championshipPreview').className = 'hidden';
+  }
+
+  if ($('resultsContainer')) {
+    $('resultsContainer').innerHTML = '';
+    $('resultsContainer').className = 'hidden';
+  }
+
+  if ($('ssMessages')) {
+    $('ssMessages').innerHTML = '';
+    $('ssMessages').className = 'hidden';
+  }
+
+  savedResults = '';
+  savedShowData = null;
+  savedRecords = [];
+}
+
+function setEngineTabButtons(tabName) {
+  document.querySelectorAll('.ss-engine-tab').forEach(button => {
+    const active = button.dataset.engineTab === tabName;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+}
+
+function configureWorkspaceForTab(tabName) {
+  const defaults = activeTabDefaults(tabName);
+
+  if ($('eventCategory')) $('eventCategory').value = defaults.category;
+
+  const kicker = $('engineKicker');
+  const heading = $('engineHeading');
+  const formatLabel = $('showFormatLabel');
+  const formatHelp = $('showFormatHelp');
+  const specialtyNote = $('specialtySystemNote');
+
+  if (tabName === 'conformation') {
+    if (kicker) kicker.textContent = 'Conformation';
+    if (heading) heading.textContent = 'Build Your Conformation Show';
+    if (formatLabel) formatLabel.textContent = 'Conformation Format';
+    if (formatHelp) formatHelp.textContent = 'All Breed, Group or Breed Specialty, Rare Breed, Major Chase, Titled, or Untitled.';
+    if (specialtyNote) specialtyNote.className = 'hidden';
+  }
+
+  if (tabName === 'activities') {
+    if (kicker) kicker.textContent = 'Standard Activities';
+    if (heading) heading.textContent = 'Build Your Activity Show';
+    if (formatLabel) formatLabel.textContent = 'Activity Format';
+    if (formatHelp) formatHelp.textContent = 'Standard activity points and titles use the same activity engine across all species.';
+    if (specialtyNote) specialtyNote.className = 'hidden';
+  }
+
+  if (tabName === 'specialty') {
+    if (kicker) kicker.textContent = 'Specialty / Associations';
+    if (heading) heading.textContent = 'Build Your Specialty Event';
+    if (formatLabel) formatLabel.textContent = 'Specialty System';
+    if (formatHelp) formatHelp.textContent = 'Systems here have their own qualification, award, point, or title rules.';
+    if (specialtyNote) specialtyNote.className = 'ss-specialty-note';
+  }
+}
+
+async function restoreChampionshipSelections(state) {
+  if (!state || state.championshipMode !== 'championship') return;
+
+  await loadChampionshipSeries();
+
+  if (state.championshipSeries && $('championshipSeries')) {
+    $('championshipSeries').value = state.championshipSeries;
+    await loadChampionshipShows();
+
+    const selected = new Set((state.championshipShowIds || []).map(String));
+    document.querySelectorAll('.ss-championship-show').forEach(box => {
+      box.checked = selected.has(String(box.value));
+    });
+  }
+
+  if (state.championshipQualification && $('championshipQualification')) {
+    $('championshipQualification').value = state.championshipQualification;
+  }
+
+  if ($('championshipPreview')) {
+    $('championshipPreview').innerHTML = state.championshipPreviewHtml || '';
+    $('championshipPreview').className = state.championshipPreviewClass || 'hidden';
+  }
+}
+
+async function restoreWorkspaceState(tabName) {
+  const defaults = activeTabDefaults(tabName);
+  const state = randomizerWorkspaceState[tabName] || defaults;
+
+  resetVisibleWorkspace();
+  configureWorkspaceForTab(tabName);
+
+  if ($('showSpecies')) $('showSpecies').value = state.species || defaults.species;
+  if ($('eventCategory')) $('eventCategory').value = defaults.category;
+  if ($('championshipMode')) $('championshipMode').value = state.championshipMode || defaults.championshipMode;
+  if ($('activityResultMethod')) $('activityResultMethod').value = state.activityResultMethod || defaults.activityResultMethod;
+  if ($('maxScore')) $('maxScore').value = state.maxScore || defaults.maxScore;
+  if ($('herdingEventType')) $('herdingEventType').value = state.herdingEventType || defaults.herdingEventType;
+
+  renderShowFormatOptions();
+  if ($('showFormat')) {
+    const wantedFormat = state.format || defaults.format;
+    const valid = [...$('showFormat').options].some(option => option.value === wantedFormat);
+    if (valid) $('showFormat').value = wantedFormat;
+  }
+
+  if (tabName === 'activities') {
+    await populateActivitySelector();
+    if ($('activityKey')) {
+      const wantedActivity = state.activityKey || defaults.activityKey;
+      const valid = [...$('activityKey').options].some(option => option.value === wantedActivity);
+      if (valid) $('activityKey').value = wantedActivity;
+    }
+  }
+
+  if ($('showName')) $('showName').value = state.showName || '';
+  if ($('bannerUrl')) $('bannerUrl').value = state.bannerUrl || '';
+  if ($('seriesName')) $('seriesName').value = state.seriesName || '';
+  if ($('seriesRound')) $('seriesRound').value = state.seriesRound || '';
+  if ($('rawData')) $('rawData').value = state.rawData || '';
+
+  savedResults = state.savedResults || '';
+  savedShowData = state.savedShowData || null;
+  savedRecords = Array.isArray(state.savedRecords) ? state.savedRecords.slice() : [];
+
+  if ($('resultsContainer')) {
+    $('resultsContainer').innerHTML = state.resultsHtml || '';
+    $('resultsContainer').className = state.resultsClass || 'hidden';
+  }
+
+  if ($('ssMessages')) {
+    $('ssMessages').innerHTML = state.messageHtml || '';
+    $('ssMessages').className = state.messageClass || 'hidden';
+  }
+
+  // If this workspace has an upload still running in the background, keep its
+  // restored Upload button disabled instead of making a second upload look safe.
+  if (randomizerUploadInProgress[tabName]) {
+    const restoredUploadButton = $('uploadButton');
+    if (restoredUploadButton) {
+      restoredUploadButton.disabled = true;
+      restoredUploadButton.textContent = '⏳ Uploading...';
+    }
+  }
+
+  updatePhase1UI();
+  await restoreChampionshipSelections(state);
+  if (isEndurance) renderEnduranceControls();
+  updateSetupSummary();
+}
+
+async function switchRandomizerTab(tabName) {
+  if (!RANDOMIZER_TAB_DEFAULTS[tabName] || tabName === activeRandomizerTab) return;
+
+  captureWorkspaceState();
+  activeRandomizerTab = tabName;
+  setEngineTabButtons(tabName);
+  await restoreWorkspaceState(tabName);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// =============================================================
+// PHASE 1 — GUIDED STANDARD SHOW SETUP
+// =============================================================
+
+
+const SS_HUNTING_FIELD_TESTS = {
+  flushing: {
+    label: 'Flushing',
+    code: 'Fl',
+    specializations: {
+      pheasant: { label:'Pheasant', code:'p' },
+      grouse: { label:'Grouse', code:'g' },
+      woodcock: { label:'Woodcock', code:'w' },
+      quail: { label:'Quail', code:'q' },
+      rabbit: { label:'Rabbit', code:'r' }
+    },
+    categories: ['Search & Quartering','Scent & Quarry Location','Flush Quality','Steadiness','Handler Cooperation']
+  },
+  retrieving: {
+    label: 'Retrieving',
+    code: 'Rt',
+    specializations: {
+      duck: { label:'Duck', code:'d' },
+      goose: { label:'Goose', code:'g' },
+      pheasant: { label:'Pheasant', code:'p' },
+      grouse: { label:'Grouse', code:'gr' }
+    },
+    categories: ['Marking','Search & Location','Pick-up / Retrieve','Delivery','Handler Cooperation']
+  },
+  trailing: {
+    label: 'Scent / Trailing',
+    code: 'Tr',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      fox: { label:'Fox', code:'f' },
+      deer: { label:'Deer', code:'d' }
+    },
+    categories: ['Scent Acquisition','Line Accuracy','Persistence','Loss & Reacquisition','Final Indication']
+  },
+  treeing_baying: {
+    label: 'Treeing / Baying',
+    code: 'TB',
+    specializations: {
+      raccoon: { label:'Raccoon', code:'r' },
+      squirrel: { label:'Squirrel', code:'s' },
+      boar: { label:'Boar', code:'bo' },
+      bear: { label:'Bear', code:'br' },
+      cougar: { label:'Cougar', code:'c' }
+    },
+    categories: ['Search & Tracking','Quarry Location','Tree / Bay Work','Persistence','Control']
+  },
+  ratting: {
+    label: 'Ratting',
+    code: 'Rat',
+    specializations: {
+      barn: { label:'Barn', code:'b' },
+      farmyard: { label:'Farmyard', code:'f' },
+      stack_den: { label:'Stack / Den', code:'s' },
+      urban: { label:'Urban', code:'u' }
+    },
+    categories: ['Search Pattern','Scent / Location','Indication','Agility / Problem Solving','Control']
+  },
+  versatile: {
+    label: 'Versatile Hunting',
+    code: 'VH',
+    specializations: {
+      upland: { label:'Upland', code:'u' },
+      waterfowl: { label:'Waterfowl', code:'w' },
+      woodland: { label:'Woodland', code:'f' },
+      mixed_field: { label:'Mixed Field', code:'m' }
+    },
+    categories: ['Search','Scent / Tracking','Point / Flush Work','Retrieve','Handler Cooperation']
+  },
+  coursing: {
+    label: 'Coursing',
+    code: 'Co',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      fox: { label:'Fox', code:'f' },
+      coyote_jackal: { label:'Coyote / Jackal', code:'c' },
+      deer_gazelle: { label:'Deer / Gazelle', code:'d' }
+    },
+    categories: ['Quarry Awareness','Pursuit / Line','Speed','Agility','Endurance']
+  },
+  falconry: {
+    label: 'Falconry',
+    code: 'Fa',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      pheasant: { label:'Pheasant', code:'p' },
+      grouse: { label:'Grouse', code:'g' },
+      quail: { label:'Quail', code:'q' },
+      waterfowl: { label:'Waterfowl', code:'w' }
+    },
+    categories: ['Search','Quarry Location','Flush / Point Work','Bird Cooperation / Steadiness','Handler Cooperation']
+  },
+  pack_hunting: {
+    label: 'Pack Hunting',
+    code: 'PH',
+    specializations: {
+      rabbit: { label:'Rabbit', code:'r' },
+      hare: { label:'Hare', code:'h' },
+      fox: { label:'Fox', code:'f' },
+      coyote_jackal: { label:'Coyote / Jackal', code:'c' },
+      boar: { label:'Boar', code:'b' },
+      deer: { label:'Deer', code:'d' }
+    },
+    categories: ['Scent / Line Work','Pack Cooperation','Communication','Persistence','Control']
+  },
+  catch_dogs: {
+    label: 'Catch Dogs',
+    code: 'CD',
+    specializations: {
+      boar: { label:'Boar', code:'b' },
+      cattle: { label:'Cattle', code:'c' }
+    },
+    categories: ['Quarry Engagement','Hold / Control','Grip & Commitment','Handler Response','Safety & Stability']
+  },
+  tolling: {
+    label: 'Tolling',
+    code: 'Tl',
+    eligibleBreeds: ['Nova Scotia Duck Tolling Retriever','Nederlandse Kooikerhondje'],
+    specializations: {
+      waterfowl: { label:'Waterfowl', code:'w' }
+    },
+    categories: ['Tolling / Search Pattern','Quarry Attraction','Steadiness','Retrieve / Delivery','Handler Cooperation']
+  },
+  puffin_hunting: {
+    label: 'Puffin Hunting',
+    code: 'Pu',
+    eligibleBreeds: ['Norwegian Lundehund'],
+    specializations: {
+      puffin: { label:'Puffin', code:'p' }
+    },
+    categories: ['Search & Location','Terrain / Agility','Den / Crevice Work','Quarry Retrieval','Handler Cooperation']
+  }
+};
+
+const SS_HUNTING_LEVELS = {
+  beginners: { label:'Beginners', code:'B', passScore:110, categoryMinimum:15, titleQs:5 },
+  expert: { label:'Expert', code:'E', passScore:130, categoryMinimum:20, titleQs:10, prerequisite:'beginners' },
+  masters: { label:'Masters', code:'M', passScore:150, categoryMinimum:25, titleQs:15, prerequisite:'expert' }
+};
+
+const SS_HUNTING_TERRAINS = [
+  'Open field','Pasture','Woodland','Dense brush','Marsh / wetland',
+  'Rocky ground','Rolling country','Agricultural land'
+];
+const SS_HUNTING_WEATHER = [
+  'Clear and calm','Light rain','Heavy rain','Moderate wind',
+  'Hot and dry','Cold conditions','Recent rainfall'
+];
+const SS_HUNTING_SCENT = [
+  'Fresh strong scent','Moderate scent','Broken scent',
+  'Crossing scent','Old scent','Contaminated scent'
+];
+const SS_HUNTING_DISTRACTIONS = [
+  'Light distraction','Wildlife distraction','Livestock nearby',
+  'Other dogs working nearby','Human activity','Competing scent'
+];
+const SS_HUNTING_QUARRY_DIFFICULTY = [
+  'Predictable quarry movement','Moving quarry','Evasive quarry',
+  'Doubled-back trail','Multiple quarry scents','Difficult location'
+];
+
+const SS_SPECIALTY_SYSTEMS = [
+  {
+    key: 'herding_club',
+    display_name: 'Herding Club',
+    species: 'dog',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'testing_system_dog',
+    display_name: 'Temperament / Therapy / CGC Testing',
+    species: 'dog',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'hunting_club',
+    display_name: 'Hunting Club',
+    species: 'dog',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'spaniel_club',
+    display_name: 'Spaniel Club',
+    species: 'dog',
+    active: false,
+    title_system: true
+  },
+  {
+    key: 'testing_system_cat',
+    display_name: 'Temperament / Therapy Testing',
+    species: 'cat',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'testing_system_horse',
+    display_name: 'Temperament / Therapy Testing',
+    species: 'horse',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'icelandic_horse_club',
+    display_name: 'Icelandic Horse Club',
+    species: 'horse',
+    active: true,
+    title_system: true
+  },
+  {
+    key: 'endurance_club',
+    display_name: 'Endurance Club',
+    species: 'horse',
+    active: true,
+    title_system: true
+  }
+];
+
+function specialtySystemsForSpecies(species) {
+  const selected = cleanLine(species).toLowerCase();
+  return SS_SPECIALTY_SYSTEMS.filter(system => system.species === selected);
+}
+
+function renderSpecialtySystemOptions() {
+  if (activeRandomizerTab !== 'specialty' || !$('showFormat')) return;
+
+  // Preserve the user's currently selected specialty system when the UI
+  // refreshes. Without this, rebuilding the <select> resets horse specialties
+  // to the first option (Temperament / Therapy), even when Icelandic Horse
+  // Club was selected. That made an IHASS 'breeding' event get routed into
+  // the testing runner, which then crashed trying to read level.label from null.
+  const previousSystem = $('showFormat').value;
+  const species = $('showSpecies') ? $('showSpecies').value : 'dog';
+  const systems = specialtySystemsForSpecies(species);
+
+  const specialtyNote = $('specialtySystemNote');
+  if (specialtyNote) {
+    const names = systems.map(system =>
+      system.display_name + (system.active ? '' : ' (Coming Next)')
+    );
+
+    specialtyNote.innerHTML =
+      '<strong>Specialty / Association systems for ' +
+      escapeHtml(species.charAt(0).toUpperCase() + species.slice(1)) +
+      '</strong>' +
+      '<span>' +
+      (names.length ? escapeHtml(names.join(' • ')) : 'None configured yet.') +
+      '</span>';
+  }
+
+  if (!systems.length) {
+    $('showFormat').innerHTML =
+      '<option value="">No specialty systems configured for this species yet</option>';
+    return;
+  }
+
+  $('showFormat').innerHTML = systems.map(system =>
+    '<option value="' + escapeHtml(system.key) + '">' +
+    escapeHtml(system.display_name) +
+    (system.active ? '' : ' — Coming Next') +
+    '</option>'
+  ).join('');
+
+  const canRestorePrevious = systems.some(system => system.key === previousSystem);
+  if (canRestorePrevious) {
+    $('showFormat').value = previousSystem;
+  } else if ($('showFormat').options.length) {
+    $('showFormat').selectedIndex = 0;
+  }
+}
+
+const SS_ENDURANCE_RACES = [{"key":"northern_circuit_polar_trek","name":"Polar Trek","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Host Dependent","distance_km":850,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_highland_challenge","name":"Highland Challenge","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":155,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_viking_cup","name":"Viking Cup","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":165,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_fjord_expedition","name":"Fjord Expedition","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_siberian_plate","name":"Siberian Plate","circuit":"Northern Circuit","series":null,"grade":"I","conference":"Eastern","distance_km":1500,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_baltic_challenge","name":"Baltic Challenge","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":350,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_celtic_crossing","name":"Celtic Crossing","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_saudi_cup","name":"Saudi Cup","circuit":"Desert Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_marathon_des_sables","name":"Marathon des Sables","circuit":"Desert Circuit","series":null,"grade":"III","conference":"Western","distance_km":260,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_atlas_challenge","name":"Atlas Challenge","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Western","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_nile_expedition","name":"Nile Expedition","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":850,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_dubai_crown_prince_conference","name":"Dubai Crown Prince Conference","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":150,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_karakum_crossing","name":"Karakum Crossing","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_wadi_rum_challenge","name":"Wadi Rum Challenge","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_mongol_derby","name":"Mongol Derby","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_turkmen_s_plate","name":"Turkmen’s Plate","circuit":"Steppe Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":250,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_silk_road_classic","name":"Silk Road Classic","circuit":"Steppe Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_eurasia_challenge","name":"Eurasia Challenge","circuit":"Steppe Circuit","series":null,"grade":"I","conference":"Both","distance_km":4000,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_dragon_trail","name":"Dragon Trail","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_altai_eagle_ride","name":"Altai Eagle Ride","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_kazakh_eagle_cup","name":"Kazakh Eagle Cup","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_new_year_s_cup","name":"New Year’s Cup","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":300,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_tevis_cup","name":"Tevis Cup","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":100,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_continental_divide","name":"Continental Divide","circuit":"North American Frontier Circuit","series":null,"grade":"I","conference":"Western","distance_km":5000,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_yukon_gold_rush","name":"Yukon Gold Rush","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":950,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_route_66_classic","name":"Route 66 Classic","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_maya_mountain_challenge","name":"Maya Mountain Challenge","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_volc_n_trail_classic","name":"Volcán Trail Classic","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_gaucho_derby","name":"Gaucho Derby","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_pampas_classic","name":"Pampas Classic","circuit":"South American Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_andes_crossing","name":"Andes Crossing","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_amazon_basin_trek","name":"Amazon Basin Trek","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_atacama_crossing","name":"Atacama Crossing","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_inca_trail_endurance","name":"Inca Trail Endurance","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_pantanal_expedition","name":"Pantanal Expedition","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_outback_challenge","name":"Outback Challenge","circuit":"Oceania Circuit","series":null,"grade":"I","conference":"Eastern","distance_km":2600,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_great_barrier_trek","name":"Great Barrier Trek","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_tasman_trail_classic","name":"Tasman Trail Classic","circuit":"Oceania Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_southern_alps_ride","name":"Southern Alps Ride","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_coral_coast_challenge","name":"Coral Coast Challenge","circuit":"Oceania Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":350,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_kimberley_expedition","name":"Kimberley Expedition","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_southern_ocean_run","name":"Southern Ocean Run","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_great_rift_challenge","name":"Great Rift Challenge","circuit":"African Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_serengeti_trek","name":"Serengeti Trek","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_kalahari_classic","name":"Kalahari Classic","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_okavango_challenge","name":"Okavango Challenge","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_cape_frontier_ride","name":"Cape Frontier Ride","circuit":"African Circuit","series":null,"grade":"II","conference":"Host Dependent","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_drakensberg_traverse","name":"Drakensberg Traverse","circuit":"African Circuit","series":null,"grade":"I","conference":"Host Dependent","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_kilimanjaro_challenge","name":"Kilimanjaro Challenge","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_aegean_odyssey","name":"Aegean Odyssey","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_adriatic_classic","name":"Adriatic Classic","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_sicilian_volcano_run","name":"Sicilian Volcano Run","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Western","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_iberian_coast_challenge","name":"Iberian Coast Challenge","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_cyprus_crossing","name":"Cyprus Crossing","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Host Dependent","distance_km":300,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_amalfi_coast_classic","name":"Amalfi Coast Classic","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_dalmatian_coast_ride","name":"Dalmatian Coast Ride","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_mekong_expedition","name":"Mekong Expedition","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_emerald_jungle_challenge","name":"Emerald Jungle Challenge","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_borneo_rainforest_run","name":"Borneo Rainforest Run","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_island_kingdom_classic","name":"Island Kingdom Classic","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_dragon_s_peninsula_trek","name":"Dragon’s Peninsula Trek","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_angkor_heritage_ride","name":"Angkor Heritage Ride","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_java_volcano_challenge","name":"Java Volcano Challenge","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_ruby","name":"The Ruby","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_opal","name":"The Opal","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_emerald","name":"The Emerald","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_sapphire","name":"The Sapphire","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_pearl","name":"The Pearl","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":1100,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_diamond","name":"The Diamond","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_crystal_tour_the_quartz","name":"The Quartz","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_jade","name":"The Jade","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_amber","name":"The Amber","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_garnet","name":"The Garnet","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_onyx","name":"The Onyx","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_topaz","name":"The Topaz","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_tour_amazing_race","name":"The Amazing Race","circuit":"World Tour","series":"amazing_race","grade":null,"conference":"Host Dependent","distance_km":1200,"event_kind":"team","requires_endurance_title":false},{"key":"world_the_western_finals","name":"The Western Finals","circuit":"World Tour","series":"conference_final","grade":"INV","conference":"Western","distance_km":1000,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Winner of any Western stakes race"},{"key":"world_the_eastern_challenge","name":"The Eastern Challenge","circuit":"World Tour","series":"conference_final","grade":"INV","conference":"Eastern","distance_km":1000,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Winner of any Eastern stakes race"},{"key":"world_the_invitational","name":"The Invitational","circuit":"World Tour","series":"invitational","grade":"INV","conference":"International","distance_km":1500,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Grade I/II stakes winner, top three in either final, ENO title, or full series winner"}];
+
+const SS_PHASE1_FORMATS = {
+  conformation: [
+    ['conformation', 'All Breed Shows'],
+    ['group-specialty', 'Group Specialties'],
+    ['breed-specialty', 'Breed Specialties'],
+    ['rare-breed', 'Rare Breed Shows'],
+    ['major-chase', 'Major Chase Shows'],
+    ['titled-specific', 'Titled Shows'],
+    ['untitled', 'Untitled Shows']
   ],
-  cat: [
-    { name: "Versatility Novice", code: "VNC", level: "A" },
-    { name: "Versatility Advanced", code: "VAC", level: "B" },
-    { name: "Versatility Excellence", code: "VEC", level: "C" },
-    { name: "Versatility Bronze", code: "VBC", level: "D" },
-    { name: "Versatility Silver", code: "VSC", level: "E" },
-    { name: "Versatility Gold", code: "VGC", level: "F" }
+  activities: [
+    ['divided', 'Activities — Divided'],
+    ['undivided', 'Activities — Undivided'],
+    ['divided-bif', 'Activities — Divided + Best in Field'],
+    ['undivided-bif', 'Activities — Undivided + Best in Field']
   ],
-  horse: [
-    { name: "Versatility Novice", code: "VNH", level: "A" },
-    { name: "Versatility Advanced", code: "VAH", level: "B" },
-    { name: "Versatility Excellence", code: "VEH", level: "C" },
-    { name: "Versatility Bronze", code: "VBH", level: "D" },
-    { name: "Versatility Silver", code: "VSH", level: "E" },
-    { name: "Versatility Gold", code: "VGH", level: "F" }
+  herding: [
+    ['herding-club', 'Herding Club']
   ]
 };
 
-function makeVersatilityMap(categories) {
-  const map = {};
-  categories.forEach((levels, categoryIndex) => {
-    levels.forEach((codes, levelIndex) => {
-      codes.forEach(code => {
-        map[titleCodeKey(code)] = { category: categoryIndex + 1, level: levelIndex + 1 };
-      });
-    });
-  });
-  return map;
+function selectedEventCategory() {
+  return $('eventCategory') ? $('eventCategory').value : 'conformation';
 }
 
-const VERSATILITY_CODES = {
-  dog: makeVersatilityMap([
-    [
-      ["BN","GN","MFN","MFI","HtMN","HtMI","RN","RI"],
-      ["GO","CD","MFO","MFA","HtMO","HtMA","RA","RE"],
-      ["CDX","UD","MFE","HtME","RM","RAE"],
-      ["UDX","OM","OGM","MFCH","HtMCH","RNC"],
-      ["OTCH","NOC","MFGCH","HtMGCH","RACh"]
-    ],
-    [
-      ["Ch","GCh","NatCh","NTD","CGC","CGCB","TAD","TTD"],
-      ["IntCh","WCh","ITD","CGCS"],
-      ["SprWCh","UniCh","ATD","CGCG"],
-      ["HOF","ETD","CGCA"],
-      ["HOL","TDCh","CGCU"]
-    ],
-    [
-      ["JH","JHA","CAD","CDN","SHR","RATN","RATO","CJN","CNC","JE","CF","CFN"],
-      ["MH","CDI","CDA","HR","RATS","CGN","SE","CFI","CFA"],
-      ["MHA","CDE","HRCh","RATM","CSGN","ME","CFE","CFM"],
-      ["SH","CDM","GrHCh","RATCh","WNC","EE","CFCh"],
-      ["SHA","CDCh","SupHRCh","RATChX","CWGN","EDCh","CFGCh"]
-    ],
-    [
-      ["ObH","PH1","BTr","BH","SD","NDD","ANDD","HT","PT","WD","BkD","CXD","RD","SkD"],
-      ["SpH","RS1","SchHI","SDX","DrD","MDD","HS","HI","WRD","BkCh","CXCh","RDX","SkCh"],
-      ["RH","RS2","SchHII","SDCh","NBDD","ANBDD","HA","WRDX","BkGrCh","CXGrCh","RDCh","SkGrCh"],
-      ["PH2","RS3","SchHIII","SDGrCh","BDD","MBDD","HX","WRDCh","BkSupCh","CXSupCh","RDXCh","SkSupCh"],
-      ["Met Lof","RSCh","SchHCh","SDSupCh","GMDD","TDD","HCh","WRDGCh","BkSupGCh","CXSupGCh","RDXGCh","SkSupGCh"]
-    ],
-    [
-      ["JC","JR","JRM","AD","ADX","FD","FDX","CAT","TRJ"],
-      ["SC","SR","ADX Bronze","ADX Silver","FDCH Bronze","FDCH Silver","BCAT","TRM"],
-      ["MC","SRM","ADX Gold","AgCh","FDCH Gold","FM","DCAT","TRCh"],
-      ["LCX","RCh","NAgCh","MAgCh","FMX","FMCh","FCAT","TRChE"],
-      ["NFC","SRCh","AgGCH","FDGCh","SCAT","TRGCh"]
-    ],
-    [
-      ["UWP","UWPCh","CTB-B","CTBT-B","DD","DDX","DN","ARJ","HyDN"],
-      ["UWPChX","UGWPCh","CTB-I","CTBT-I","DDCh","DJ","ARS","HyDJ"],
-      ["UGWPC1","UWPV","CTB-E","CTBT-E","DDACh","DS","ARM","HyDS"],
-      ["UWPO","CTB-Ch","CTBT-Ch","DDMCh","DM","ARA","HyDM"],
-      ["UWPS","CTB-GCh","CTBT-GCh","DDECh","DE","ARX","HyDE"]
-    ],
-    [
-      ["SWD","SWN","SAR-W","SD-I","SD-II","TD"],
-      ["SWNE","SWNA","SAR-U1","SD-III","TDX"],
-      ["SWNAE","SWE","SAR-U2","SD-Ch","TDU"],
-      ["SWNEE","SWM","SAR-U3","SD-MCh","VST"],
-      ["SWME","SAR-Ch","SD-GCh","CT"]
-    ]
-  ]),
 
-  cat: makeVersatilityMap([
-    [
-      ["Ch","GCh","NatCh","TAC","TT","TTC","NTD"],
-      ["IntCh","WCh","ITD"],
-      ["SprWCh","UniCh","ATD"],
-      ["HOF","ETD"],
-      ["HOL","TDCh"]
-    ],
-    [
-      ["CAB","FON","FRN"],
-      ["CAAI","FOI","FRI"],
-      ["CAAII","FOA","FRA"],
-      ["CACh","FOE","FRE"],
-      ["CAGCh","FOCh","FRCh"]
-    ],
-    [
-      ["FFN","RCN","SDN"],
-      ["FFI","RCI","SDI"],
-      ["FFA","RCA","SDA"],
-      ["FFE","RCE","SDE"],
-      ["FFCh","RCCh","SDCh"]
-    ],
-    [
-      ["SC1","VN","TB-B","TBB","HJN"],
-      ["SC2","VJ","TB-I","TBI","HJI"],
-      ["SC3","VS","TB-E","TBE","HJA"],
-      ["SC4","VM","TB-Ch","TBCh","HJE"],
-      ["SCCh","VE","HJCh"]
-    ]
-  ]),
+function selectedChampionshipMode() {
+  return $('championshipMode') ? $('championshipMode').value : 'regular';
+}
 
-  horse: makeVersatilityMap([
-    [
-      ["Ch","GCh","NatCh","NTD","TTH","TAH","LTI","SMSR"],
-      ["IntCh","WCh","ITD","LTT","SMS1"],
-      ["SprWCh","UniCh","ATD","LT1L","SMS2"],
-      ["HOF","ETD","LT2L","SMS3"],
-      ["HOL","TDCh","LT3L","LTM","SMS4","SMSP"]
-    ],
-    [
-      ["DIntro","DTr","CDI","CDT","CBDI","CBDT","WDI","WDT","IHDI","IHDT","CIHDI","CIHDT"],
-      ["D1","D2","CD1L","CBD1L","WD1K","IHD1L","CIHD1L"],
-      ["D3","D4","C2L","CBD2L","WD2L","IHD2L","CIHD2L"],
-      ["DPST","DInt1","CD3L","CBD3L","WD3L","IHD3L","CIHD3L"],
-      ["DInt2","DGP","CDM","CBDM","WDM","IHDM","CIHDM"]
-    ],
-    [
-      ["DrPN","NHH","WRPR"],
-      ["DrN","IHH","WRP1"],
-      ["DrInt","AHH","WTP2"],
-      ["DrO","HHCh","WTP3"],
-      ["DrA","HHGCh","WTP4"]
-    ],
-    [
-      ["NGH","GDI","GDT"],
-      ["IGH","GD1L"],
-      ["AGH","GD2L"],
-      ["GHCh","GD3L"],
-      ["GHGCh","GDM"]
-    ],
-    [
-      ["EnN","RaM","RaA","SRaM","SRaA","HRaM","HRaA","BRR","GYR"],
-      ["EnJ","RaL","SRaL","HRaL","BR4","GY1"],
-      ["EnI","G3","SG3","HG3","BR3","GY2"],
-      ["EnO","G2","SG2","HG2","BR2","GY3"],
-      ["G1","SG1","HG1","BR1","GYP"]
-    ],
-    [
-      ["S1","S2","HBG","EPI","EI","EPT"],
-      ["S3","S4","HPG","ET","EO"],
-      ["S5","S6","H1","E*"],
-      ["S7","S8","H2","E**"],
-      ["S9","SGP","HR","E***"]
-    ],
-    [
-      ["WPR","WER","TRR","RGr"],
-      ["WP1","WE1","TR1","RR"],
-      ["WP2","WE2","TR2","RN"],
-      ["WP3","WE3","TR3","RNP"],
-      ["WPP","WEP","TRP","RP"]
-    ],
-    [
-      ["CR","ROR","WCR"],
-      ["C1","RO1","WC1"],
-      ["C2","RO2","WC2"],
-      ["C3","RO3","WC3"],
-      ["CP","ROP","WCP"]
-    ]
+function currentShowKind() {
+  return selectedEventCategory() === 'activities' ? 'activity' : 'conformation';
+}
+
+function resolveLegacyShowType() {
+  const category = selectedEventCategory();
+
+  if (activeRandomizerTab === 'specialty') {
+    const system = $('showFormat') ? $('showFormat').value : 'herding_club';
+    if (system === 'herding_club') return 'herding-club';
+    return 'specialty-' + system.replace(/_/g, '-');
+  }
+
+  if (category === 'conformation') {
+    if (selectedChampionshipMode() === 'championship') return 'championship';
+    return $('showFormat').value || 'conformation';
+  }
+
+  const format = $('showFormat').value || 'divided';
+  const scored = $('activityResultMethod') && $('activityResultMethod').value === 'scored';
+  const championship = selectedChampionshipMode() === 'championship';
+
+  let type = 'activity';
+  if (championship) type += '-championship';
+  if (scored) type += '-scored';
+  if (format.includes('bif')) type += '-best-in-field';
+  if (format.includes('undivided')) type += '-no-division';
+
+  return type;
+}
+
+function renderShowFormatOptions() {
+  const select = $('showFormat');
+  if (!select) return;
+
+  if (activeRandomizerTab === 'specialty') {
+    renderSpecialtySystemOptions();
+    return;
+  }
+
+  const category = selectedEventCategory();
+  const previous = select.value;
+  const formats = SS_PHASE1_FORMATS[category] || [];
+
+  select.innerHTML = formats
+    .map(([value, label]) =>
+      '<option value="' + escapeHtml(value) + '">' + escapeHtml(label) + '</option>'
+    )
+    .join('');
+
+  const validPrevious = formats.some(([value]) => value === previous);
+  select.value = validPrevious
+    ? previous
+    : (formats[0] ? formats[0][0] : '');
+
+  if (select.selectedIndex < 0 && select.options.length) {
+    select.selectedIndex = 0;
+  }
+}
+
+function setChampionshipQualificationOptions() {
+  const select = $('championshipQualification');
+  if (!select) return;
+
+  if (selectedEventCategory() === 'activities') {
+    select.innerHTML = [
+      ['first-place', 'First-place winners'],
+      ['top-three', 'Top three placements'],
+      ['any-placement', 'Any points placement'],
+      ['best-in-field', 'Best in Field winners'],
+      ['qualifying-score', 'Qualifying scores / passes'],
+      ['all-entrants', 'All entrants from selected shows']
+    ].map(([value, label]) =>
+      '<option value="' + value + '">' + label + '</option>'
+    ).join('');
+  } else {
+    select.innerHTML = [
+      ['challenge-or-better', 'Challenge Winner or Better'],
+      ['bob-or-better', 'Best of Breed or Better'],
+      ['big-or-better', 'Best in Group or Better'],
+      ['bis-only', 'Best in Show Winners Only'],
+      ['bis-or-reserve', 'Best or Reserve Best in Show']
+    ].map(([value, label], index) =>
+      '<option value="' + value + '"' + (index === 1 ? ' selected' : '') + '>' + label + '</option>'
+    ).join('');
+  }
+}
+
+
+
+function ensureHuntingControls() {
+  if (!$('herdingPanel') || $('huntingClubControls')) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'huntingClubControls';
+  wrapper.className = 'hidden';
+  wrapper.innerHTML = `
+    <div class="ss-field">
+      <label>Field Test Family</label>
+      <select id="huntingFamily"></select>
+    </div>
+    <div class="ss-field">
+      <label>Quarry / Environment</label>
+      <select id="huntingSpecialization"></select>
+    </div>
+    <div class="ss-field">
+      <label>Test Level</label>
+      <select id="huntingLevel">
+        <option value="beginners">Beginners</option>
+        <option value="expert">Expert</option>
+        <option value="masters">Masters</option>
+      </select>
+      <small id="huntingLevelNote"></small>
+    </div>
+  `;
+
+  $('herdingPanel').appendChild(wrapper);
+
+  $('huntingFamily').addEventListener('change', () => {
+    renderHuntingSpecializations();
+    updateHuntingLevelNote();
+    captureWorkspaceState();
+  });
+  $('huntingSpecialization').addEventListener('change', captureWorkspaceState);
+  $('huntingLevel').addEventListener('change', () => {
+    updateHuntingLevelNote();
+    captureWorkspaceState();
+  });
+}
+
+function renderHuntingControls() {
+  ensureHuntingControls();
+  const wrapper = $('huntingClubControls');
+  if (!wrapper) return;
+
+  const active =
+    activeRandomizerTab === 'specialty' &&
+    $('showFormat')?.value === 'hunting_club';
+
+  wrapper.className = active ? '' : 'hidden';
+  if (!active) return;
+
+  const familySelect = $('huntingFamily');
+  const previous = familySelect.value;
+
+  familySelect.innerHTML = Object.entries(SS_HUNTING_FIELD_TESTS)
+    .map(([key, value]) => `<option value="${key}">${escapeHtml(value.label)}</option>`)
+    .join('');
+
+  if ([...familySelect.options].some(option => option.value === previous)) {
+    familySelect.value = previous;
+  }
+
+  renderHuntingSpecializations();
+  updateHuntingLevelNote();
+}
+
+function renderHuntingSpecializations() {
+  const family = SS_HUNTING_FIELD_TESTS[$('huntingFamily')?.value] || SS_HUNTING_FIELD_TESTS.flushing;
+  const select = $('huntingSpecialization');
+  if (!select) return;
+
+  const previous = select.value;
+  select.innerHTML = Object.entries(family.specializations)
+    .map(([key, value]) => `<option value="${key}">${escapeHtml(value.label)}</option>`)
+    .join('');
+
+  if ([...select.options].some(option => option.value === previous)) {
+    select.value = previous;
+  }
+}
+
+function updateHuntingLevelNote() {
+  const level = SS_HUNTING_LEVELS[$('huntingLevel')?.value] || SS_HUNTING_LEVELS.beginners;
+  const note = $('huntingLevelNote');
+  if (!note) return;
+
+  note.textContent =
+    level.label + ': ' + level.passScore + '/200 overall, minimum ' +
+    level.categoryMinimum + '/40 in every category. ' +
+    level.titleQs + ' qualifications earn the title.';
+}
+
+function relabelSpecialtyPanel(systemKey) {
+  const panel = $('herdingPanel');
+  if (!panel) return;
+
+  const config = {
+    herding_club: {
+      title:'Herding Club',
+      event:'Herding Event',
+      help:'Run Instinct Tests or Stakes Classes using the Herding Club rules.'
+    },
+    testing_system_dog: {
+      title:'Temperament / Therapy / CGC Testing',
+      event:'Test Type',
+      help:'Choose the test type, paste the entries, and run the test.'
+    },
+    testing_system_cat: {
+      title:'Temperament / Therapy Testing',
+      event:'Test Type',
+      help:'Choose the test type, paste the entries, and run the test.'
+    },
+    testing_system_horse: {
+      title:'Temperament / Therapy Testing',
+      event:'Test Type',
+      help:'Choose the test type, paste the entries, and run the test.'
+    },
+    icelandic_horse_club: {
+      title:'Icelandic Horse Club',
+      event:'IHASS Event',
+      help:'Choose Halter, Gaiting, or Breeding Show.'
+    },
+    endurance_club: {
+      title:'Endurance Club',
+      event:'Endurance Event',
+      help:'Choose Prospect Classes, Unrated Races, or a Rated Stakes / Circuit Race.'
+    },
+    hunting_club: {
+      title:'Hunting Club',
+      event:'Hunting Event',
+      help:'Run zero-point working Field Tests with independent quarry / environment specializations.'
+    }
+  }[systemKey];
+
+  if (!config) return;
+
+  const heading = panel.querySelector('h2,h3,.ss-card-title,.ss-setup-title,.ss-section-title');
+  if (heading) heading.textContent = config.title;
+
+  const eventSelect = $('herdingEventType');
+  if (eventSelect) {
+    const label = panel.querySelector('label[for="herdingEventType"]') ||
+      [...panel.querySelectorAll('label')].find(label => /herding event|event type|test type|ihass event|endurance event/i.test(label.textContent || ''));
+    if (label) label.textContent = config.event;
+  }
+
+  const help = [...panel.querySelectorAll('small,.ss-help,.ss-field-help,.ss-note')]
+    .find(node => /herding|instinct|stakes|specialty event|choose.*event/i.test(node.textContent || ''));
+  if (help && !help.closest('#enduranceClubControls') && !help.closest('#huntingClubControls')) {
+    help.textContent = config.help;
+  }
+}
+
+function ensureEnduranceControls() {
+  if (!$('herdingPanel') || $('enduranceClubControls')) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.id = 'enduranceClubControls';
+  wrapper.className = 'hidden';
+  wrapper.innerHTML = `
+    <div class="ss-field" id="enduranceRaceField">
+      <label>Endurance Club Race</label>
+      <select id="enduranceRaceKey"></select>
+      <small id="enduranceRaceMeta">Select a rated race.</small>
+    </div>
+
+    <div class="ss-field" id="enduranceUnratedDistanceField">
+      <label>Unrated Race Distance (km)</label>
+      <input type="number" id="enduranceUnratedDistance" min="0" step="1" value="100">
+      <small>Used for cumulative Endurance Club distance titles.</small>
+    </div>
+
+    <div class="ss-field">
+      <label>Prize Money by Placement</label>
+      <div style="display:grid;grid-template-columns:repeat(5,minmax(80px,1fr));gap:8px;">
+        ${[1,2,3,4,5].map(place => `
+          <label style="font-size:11px;">${place}${place===1?'st':place===2?'nd':place===3?'rd':'th'}
+            <input type="number" id="endurancePrize${place}" min="0" step="1" value="0">
+          </label>
+        `).join('')}
+      </div>
+      <small>Enter the actual money won for each placing. These amounts are stored on each horse's record and are the only money counted toward EdHE / EdSpH / EdHOFE.</small>
+    </div>
+  `;
+
+  $('herdingPanel').appendChild(wrapper);
+
+  $('enduranceRaceKey').addEventListener('change', updateEnduranceRaceMeta);
+  $('herdingEventType').addEventListener('change', renderEnduranceControls);
+}
+
+function renderEnduranceControls() {
+  ensureEnduranceControls();
+
+  const wrapper = $('enduranceClubControls');
+  if (!wrapper) return;
+
+  const active =
+    activeRandomizerTab === 'specialty' &&
+    $('showFormat')?.value === 'endurance_club';
+
+  wrapper.className = active ? '' : 'hidden';
+  if (!active) return;
+
+  const mode = $('herdingEventType')?.value || 'prospect';
+  $('enduranceRaceField').className = mode === 'rated' ? 'ss-field' : 'hidden';
+  $('enduranceUnratedDistanceField').className = mode === 'unrated' ? 'ss-field' : 'hidden';
+
+  const raceSelect = $('enduranceRaceKey');
+  if (raceSelect && mode === 'rated') {
+    const previous = raceSelect.value;
+    const groups = {};
+
+    SS_ENDURANCE_RACES.forEach(race => {
+      const group = race.circuit || 'Other';
+      if (!groups[group]) groups[group] = [];
+      groups[group].push(race);
+    });
+
+    raceSelect.innerHTML = Object.keys(groups).map(group => {
+      const options = groups[group].map(race =>
+        '<option value="' + escapeHtml(race.key) + '">' +
+        escapeHtml(race.name) +
+        (race.grade ? ' — Grade ' + escapeHtml(race.grade) : '') +
+        '</option>'
+      ).join('');
+
+      return '<optgroup label="' + escapeHtml(group) + '">' + options + '</optgroup>';
+    }).join('');
+
+    if ([...raceSelect.options].some(option => option.value === previous)) {
+      raceSelect.value = previous;
+    }
+
+    updateEnduranceRaceMeta();
+  }
+}
+
+function updateEnduranceRaceMeta() {
+  const race = SS_ENDURANCE_RACES.find(row => row.key === $('enduranceRaceKey')?.value);
+  const meta = $('enduranceRaceMeta');
+  if (!meta) return;
+
+  if (!race) {
+    meta.textContent = 'Select a rated race.';
+    return;
+  }
+
+  const bits = [];
+  if (race.grade) bits.push('Grade ' + race.grade);
+  if (race.distance_km) bits.push(race.distance_km + ' km');
+  if (race.conference) bits.push(race.conference);
+  if (race.series) bits.push(race.series.replace(/_/g,' '));
+  const grade = String(race.grade || '').toUpperCase().trim();
+  if (grade === 'II') bits.push('Requires EnN+');
+  if (grade === 'I') bits.push('Requires EnJ+');
+  if (grade === 'III') bits.push('No title required');
+
+  meta.textContent = bits.join(' • ');
+}
+
+function endurancePrizeForPlace(place) {
+  const el = $('endurancePrize' + place);
+  const amount = Number(el ? el.value : 0);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+function updatePhase1UI() {
+  const category = selectedEventCategory();
+  const isActivity = activeRandomizerTab === 'activities';
+
+  // IMPORTANT: rebuild/preserve the specialty selector BEFORE reading its value.
+  // Reading it first can use the previous system for one UI cycle and configure
+  // the event dropdown for the wrong runner.
+  renderShowFormatOptions();
+
+  const selectedSpecialtySystem =
+    activeRandomizerTab === 'specialty' && $('showFormat')
+      ? $('showFormat').value
+      : null;
+  const isHerding =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'herding_club';
+  const isTesting =
+    activeRandomizerTab === 'specialty' &&
+    /^testing_system_/.test(selectedSpecialtySystem || '');
+  const isIcelandic =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'icelandic_horse_club';
+  const isEndurance =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'endurance_club';
+  const isHunting =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'hunting_club';
+  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance || isHunting;
+  const isChampionship =
+    selectedChampionshipMode() === 'championship' &&
+    activeRandomizerTab !== 'specialty';
+
+  // Reuse the existing specialty event-type control so no HTML/CSS change is needed.
+  if ($('herdingEventType')) {
+    const select = $('herdingEventType');
+    const current = select.value;
+
+    if (isTesting) {
+      const species = $('showSpecies') ? $('showSpecies').value : 'dog';
+      const options = [
+        ['temperament', 'Temperament Test'],
+        ['therapy', 'Therapy Animal Test']
+      ];
+      if (species === 'dog') options.push(['cgc', 'Canine Good Citizen (CGC)']);
+
+      select.innerHTML = options.map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+    } else if (isHerding) {
+      select.innerHTML = [
+        ['instinct', 'Instinct Testing'],
+        ['stakes', 'Stakes Classes']
+      ].map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+    } else if (isIcelandic) {
+      select.innerHTML = [
+        ['halter', 'IHASS Halter Show'],
+        ['gaiting', 'IHASS Gaiting Show'],
+        ['breeding', 'IHASS Breeding Show']
+      ].map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+    } else if (isEndurance) {
+      select.innerHTML = [
+        ['prospect', 'Prospect Classes'],
+        ['unrated', 'Unrated Stakes Races'],
+        ['rated', 'Rated Stakes / Circuit Race']
+      ].map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+      ensureEnduranceControls();
+      renderEnduranceControls();
+    } else if (isHunting) {
+      select.innerHTML = '<option value="field_test">Hunting Field Test</option>';
+      ensureHuntingControls();
+      renderHuntingControls();
+    }
+  }
+
+  const runButton = $('ssRunButton');
+  if (runButton) {
+    runButton.disabled = false;
+    runButton.textContent = isSpecialtyRunner ? '🎲 Run Specialty Event' : '🎲 Randomize Show';
+  }
+
+  $('activityOptionsPanel').className = isActivity ? 'ss-setup-card' : 'hidden';
+  $('herdingPanel').className = isSpecialtyRunner ? 'ss-setup-card' : 'hidden';
+  if (isSpecialtyRunner) relabelSpecialtyPanel(selectedSpecialtySystem);
+  if (isHunting) renderHuntingControls();
+  $('championshipModeField').className = isSpecialtyRunner ? 'hidden' : 'ss-field';
+  $('championshipPanel').className = isChampionship ? 'ss-championship-panel' : 'hidden';
+  $('normalSeriesFields').className = isChampionship ? 'hidden' : 'ss-series-grid';
+  $('entriesField').className = isChampionship ? 'hidden' : 'ss-field';
+  $('sortButton').className = (isChampionship || isActivity || isSpecialtyRunner)
+    ? 'hidden'
+    : 'ss-button secondary full';
+  $('maxScoreField').className =
+    isActivity && $('activityResultMethod').value === 'scored'
+      ? 'ss-field'
+      : 'hidden';
+
+  setChampionshipQualificationOptions();
+
+  if (isChampionship) {
+    loadChampionshipSeries();
+  }
+
+  if (isActivity) {
+    populateActivitySelector();
+  }
+
+  updateSetupSummary();
+}
+
+function updateSetupSummary() {
+  const tabLabel =
+    activeRandomizerTab === 'conformation' ? 'Conformation' :
+    activeRandomizerTab === 'activities' ? 'Standard Activities' :
+    'Specialty';
+
+  const species = $('showSpecies') ? $('showSpecies').selectedOptions[0]?.textContent : '';
+  const format = $('showFormat') ? $('showFormat').selectedOptions[0]?.textContent : '';
+  const mode = selectedChampionshipMode() === 'championship' && activeRandomizerTab !== 'specialty'
+    ? 'Championship'
+    : 'Regular';
+
+  const parts = [tabLabel, species, format, mode].filter(Boolean);
+  const el = $('setupSummary');
+  if (el) el.textContent = parts.join(' • ');
+}
+
+// =============================================================
+// 5. CHAMPIONSHIP SHOW MODULE
+// =============================================================
+const CHAMPIONSHIP_AWARD_SETS = {
+  'challenge-or-better': new Set([
+    'Male Challenge','Female Challenge',
+    'Best of Breed',
+    'Best in Group','Reserve Best in Group',
+    'Best in Show','Reserve Best in Show',
+    'Best in Show Specialty','Reserve Best in Show Specialty'
+  ]),
+  'bob-or-better': new Set([
+    'Best of Breed',
+    'Best in Group','Reserve Best in Group',
+    'Best in Show','Reserve Best in Show',
+    'Best in Show Specialty','Reserve Best in Show Specialty'
+  ]),
+  'big-or-better': new Set([
+    'Best in Group','Reserve Best in Group',
+    'Best in Show','Reserve Best in Show',
+    'Best in Show Specialty','Reserve Best in Show Specialty'
+  ]),
+  'bis-only': new Set([
+    'Best in Show','Best in Show Specialty'
+  ]),
+  'bis-or-reserve': new Set([
+    'Best in Show','Reserve Best in Show',
+    'Best in Show Specialty','Reserve Best in Show Specialty'
   ])
 };
 
-function getBestVersatilityByCategory(animal, earnedCodes) {
-  const species = normalizeKey(animal?.species);
-  const map = VERSATILITY_CODES[species];
-  const bestByCategory = {};
-
-  if (!map) return bestByCategory;
-
-  (earnedCodes || []).forEach(code => {
-    const key = titleCodeKey(code);
-    const info = map[key];
-    if (!info) return;
-
-    const current = bestByCategory[info.category] || 0;
-    bestByCategory[info.category] = Math.max(current, info.level);
-  });
-
-  return bestByCategory;
+function selectedChampionshipShowIds() {
+  return Array.from(document.querySelectorAll('.ss-championship-show:checked')).map(el => el.value);
 }
-
-function countVersatilityCategoriesAtLeast(bestByCategory, level) {
-  return Object.values(bestByCategory)
-    .filter(value => Number(value || 0) >= level)
-    .length;
+function championshipAwardAllowed(placement, rule) {
+  const allowed = CHAMPIONSHIP_AWARD_SETS[rule] || CHAMPIONSHIP_AWARD_SETS['bob-or-better'];
+  return allowed.has(cleanLine(placement));
 }
-
-function calculateVersatilityTitle(animal, earnedCodes) {
-  const species = normalizeKey(animal?.species);
-  const titles = VERSATILITY_TITLES[species];
-  if (!titles) return null;
-
-  const bestByCategory = getBestVersatilityByCategory(animal, earnedCodes);
-
-  const levelA = countVersatilityCategoriesAtLeast(bestByCategory, 1);
-  const levelB = countVersatilityCategoriesAtLeast(bestByCategory, 2);
-  const levelC = countVersatilityCategoriesAtLeast(bestByCategory, 3);
-  const levelD = countVersatilityCategoriesAtLeast(bestByCategory, 4);
-  const levelE = countVersatilityCategoriesAtLeast(bestByCategory, 5);
-
-  let earned = null;
-
-  if (levelA >= 3) earned = titles[0];
-  if (levelB >= 3) earned = titles[1];
-  if (levelC >= 2 && levelB >= 3) earned = titles[2];
-  if (levelD >= 1 && levelC >= 2 && levelB >= 3) earned = titles[3];
-  if (levelE >= 1 && levelD >= 2 && levelC >= 3) earned = titles[4];
-  if (levelE >= 2 && levelD >= 3 && levelC >= 4) earned = titles[5];
-
-  if (!earned) return null;
-
-  return {
-    ...earned,
-    categoryLevels: bestByCategory
-  };
+function formatSeriesShowLabel(show) {
+  const round = show.series_round !== null && show.series_round !== undefined ? 'Round ' + show.series_round + ' — ' : '';
+  const date = show.created_at ? String(show.created_at).slice(0, 10) : '';
+  return round + (show.show_name || 'Unnamed Show') + (date ? ' (' + date + ')' : '');
 }
-
-function buildSummary(records) {
-  const totalPoints = records.reduce((sum, r) => sum + pointsValue(r), 0);
-
-  return `
-    <div class="summary-grid">
-      <div class="summary-card"><strong>${totalPoints}</strong>Total Points</div>
-      <div class="summary-card"><strong>${records.length}</strong>Total Records</div>
-    </div>
-  `;
-}
-
-function formatScore(record) {
-  if (isHerdingInstinctRecord(record)) return "-";
-
-  const score = record?.score;
-  const maxScore = record?.max_score;
-  const scoreLabel = record?.score_label;
-  const passed = record?.passed;
-
-  const parts = [];
-
-  if (score !== null && score !== undefined && score !== "") {
-    if (maxScore !== null && maxScore !== undefined && maxScore !== "") {
-      parts.push(`${score}/${maxScore}`);
-    } else {
-      parts.push(String(score));
-    }
-  }
-
-  if (scoreLabel) {
-    parts.push(String(scoreLabel));
-  }
-
-  const passedState = passState(passed);
-  if (passedState === true) {
-    parts.push("Pass");
-  } else if (passedState === false) {
-    parts.push("Fail");
-  }
-
-  return parts.length ? parts.join(" | ") : "-";
-}
-
-
-function isRealConformationClassName(value) {
-  return /^class\s+\d+a?$/i.test(String(value || "").trim());
-}
-
-function isConformationAwardName(value) {
-  const p = normalizeKey(value);
-  return (
-    p === "best of breed" ||
-    p === "best in group" ||
-    p === "reserve best in group" ||
-    p === "best in show" ||
-    p === "reserve best in show" ||
-    p === "best in show specialty" ||
-    p === "reserve best in show specialty"
-  );
-}
-
-/* Display repair:
-   Older randomizer uploads stored major awards as:
-   class = "Best of Breed" / "Best in Show Specialty"
-   placement = same award
-   This does not rewrite the database; it fixes what the popup displays by finding
-   the same animal's real class record from that show/day. */
-function displayRecordClass(record, sectionRecords) {
-  const currentClass = String(record?.class || "").trim();
-
-  if (
-    canonicalShowType(record?.show_type) !== "conformation" ||
-    isRealConformationClassName(currentClass) ||
-    !isConformationAwardName(currentClass)
-  ) {
-    return currentClass || "-";
-  }
-
-  const sameShowClassRecord = (sectionRecords || []).find(other => {
-    if (other === record) return false;
-
-    return (
-      canonicalShowType(other?.show_type) === "conformation" &&
-      String(other?.show_name || "") === String(record?.show_name || "") &&
-      String(other?.event_date || "") === String(record?.event_date || "") &&
-      isRealConformationClassName(other?.class)
-    );
-  });
-
-  if (sameShowClassRecord?.class) return sameShowClassRecord.class;
-
-  const sameDayClassRecord = (sectionRecords || []).find(other => {
-    if (other === record) return false;
-
-    return (
-      canonicalShowType(other?.show_type) === "conformation" &&
-      String(other?.event_date || "") === String(record?.event_date || "") &&
-      isRealConformationClassName(other?.class)
-    );
-  });
-
-  if (sameDayClassRecord?.class) return sameDayClassRecord.class;
-
-  const anyClassRecord = (sectionRecords || []).find(other => {
-    if (other === record) return false;
-
-    return (
-      canonicalShowType(other?.show_type) === "conformation" &&
-      isRealConformationClassName(other?.class)
-    );
-  });
-
-  return anyClassRecord?.class || currentClass || "-";
-}
-
-function renderRecordSection(records) {
-  if (!records.length) return `<div class="empty">No records in this section.</div>`;
-
-  return `
-    ${buildSummary(records)}
-    <table class="records-table">
-      <thead>
-        <tr>
-          <th>Date</th>
-          <th>Show</th>
-          <th>Type</th>
-          <th>Class</th>
-          <th>Placement</th>
-          <th>Points</th>
-          <th>Score</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${records.map(r => `
-          <tr>
-            <td>${r.event_date || "-"}</td>
-            <td>${r.show_name || "-"}</td>
-            <td>${r.show_type || "-"}</td>
-            <td>${displayRecordClass(r, records)}</td>
-            <td>${r.placement || "-"}</td>
-            <td>${pointsValue(r)}</td>
-            <td>${formatScore(r)}</td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `;
-}
-
-async function getAnimal(animalRef) {
+async function loadChampionshipSeries() {
   const supabase = getSupabase();
+  const select = $('championshipSeries');
+  if (!supabase || !select) return;
 
-  if (!animalRef) return null;
-
-  if (isUUID(animalRef)) {
-    const { data, error } = await supabase
-      .from("animals")
-      .select("*")
-      .eq("id", animalRef)
-      .maybeSingle();
-
-    if (error) console.warn("Animal UUID lookup error:", error.message);
-    if (data) return data;
-  }
-
-  if (isNumberLike(animalRef)) {
-    const { data, error } = await supabase
-      .from("animals")
-      .select("*")
-      .eq("animal_number", Number(animalRef))
-      .maybeSingle();
-
-    if (error) console.warn("Animal number lookup error:", error.message);
-    if (data) return data;
-  }
-
-  return null;
-}
-
-async function loadBreedingAwardData(animal, titleRules) {
-  const supabase = getSupabase();
-
-  if (!supabase || !animal?.id) {
-    return {
-      offspringCount: 0,
-      championOffspring: 0,
-      supremeWorldChampionOffspring: 0,
-      loadError: false
-    };
-  }
-
-  /*
-    ROM-family awards are based on OFFSPRING achievement, not the parent's
-    own show records.
-
-    CH. and SprWCH. thresholds come from the active conformation title rules,
-    so the breeding-award system cannot drift away from the site's canonical
-    conformation ladder if those thresholds are ever changed.
-  */
-  const conformationRules = (titleRules || []).filter(
-    rule => normalizeKey(rule?.applies_to) === "conformation"
-  );
-
-  const championRule = conformationRules.find(
-    rule => titleCodeKey(rule?.title_code) === "ch"
-  );
-
-  const supremeWorldChampionRule = conformationRules.find(
-    rule => titleCodeKey(rule?.title_code) === "sprwch"
-  );
-
-  const championThreshold = Number(championRule?.points_required);
-  const supremeWorldChampionThreshold = Number(supremeWorldChampionRule?.points_required);
-
-  const effectiveChampionThreshold =
-    Number.isFinite(championThreshold) && championThreshold > 0
-      ? championThreshold
-      : 250;
-
-  const effectiveSupremeWorldChampionThreshold =
-    Number.isFinite(supremeWorldChampionThreshold) && supremeWorldChampionThreshold > 0
-      ? supremeWorldChampionThreshold
-      : 5000;
-
-  if (!championRule) {
-    console.warn("CH. conformation rule missing; ROM audit fallback threshold 250 is being used.");
-  }
-
-  if (!supremeWorldChampionRule) {
-    console.warn("SprWCH. conformation rule missing; ROM audit fallback threshold 5000 is being used.");
-  }
-
+  select.innerHTML = '<option value="">Loading series...</option>';
   const { data, error } = await supabase
-    .from("animals")
-    .select("id, conformation_points")
-    .or(`sire.eq.${animal.id},dam.eq.${animal.id}`);
+    .from('show_uploads')
+    .select('series_name')
+    .not('series_name', 'is', null);
 
   if (error) {
-    console.warn("Breeding award offspring lookup error:", error.message);
-    return {
-      offspringCount: 0,
-      championOffspring: 0,
-      supremeWorldChampionOffspring: 0,
-      loadError: true,
-      errorMessage: error.message
-    };
+    select.innerHTML = '<option value="">Could not load series</option>';
+    showMessage('error', '<strong>Series load failed:</strong> ' + error.message);
+    return;
   }
 
-  const offspring = data || [];
+  championshipSeriesCache = [...new Set((data || []).map(row => cleanLine(row.series_name)).filter(Boolean))]
+    .sort((a,b) => a.localeCompare(b));
 
-  const championOffspring = offspring.filter(child => {
-    const points = Number(child?.conformation_points || 0);
-    return Number.isFinite(points) && points >= effectiveChampionThreshold;
-  }).length;
+  select.innerHTML = '<option value="">Select a series or saved shows</option>' +
+    '<option value="__ALL_SAVED__">All Saved ' + (currentShowKind() === 'activity' ? 'Activity' : 'Conformation') + ' Shows</option>' +
+    championshipSeriesCache.map(name => '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>').join('');
 
-  const supremeWorldChampionOffspring = offspring.filter(child => {
-    const points = Number(child?.conformation_points || 0);
-    return Number.isFinite(points) && points >= effectiveSupremeWorldChampionThreshold;
-  }).length;
-
-  return {
-    offspringCount: offspring.length,
-    championOffspring,
-    supremeWorldChampionOffspring,
-    championThreshold: effectiveChampionThreshold,
-    supremeWorldChampionThreshold: effectiveSupremeWorldChampionThreshold,
-    loadError: false
-  };
+  if (!championshipSeriesCache.length) {
+    $('championshipShowList').innerHTML = '<small>No named series have been saved yet. Choose “All Saved Shows” to select from existing uploads.</small>';
+  }
 }
-
-function calculateBreedingAwardTitles(animal) {
-  const data = animal?._breedingAwards || {};
-
-  if (data.loadError) {
-    return {
-      suffixes: [],
-      rows: [{
-        titleName: "Breeding Awards",
-        titleCode: "",
-        count: "Temporarily unable to load offspring achievement data",
-        sort: 269
-      }]
-    };
-  }
-
-  const championCount = Number(data.championOffspring || 0);
-  const supremeCount = Number(data.supremeWorldChampionOffspring || 0);
-
-  const isHorse = normalizeKey(animal?.species) === "horse";
-
-  const romRequired = isHorse ? 5 : 10;
-  const romxRequired = isHorse ? 10 : 25;
-  const sprRomRequired = isHorse ? 5 : 10;
-  const sprRomxRequired = isHorse ? 10 : 25;
-
-  const suffixes = [];
-  const rows = [];
-
-  // Higher award replaces the lower award within the same ROM track.
-  if (championCount >= romxRequired) {
-    suffixes.push("ROMX");
-    rows.push({
-      titleName: "Register of Merit Excellent",
-      titleCode: "ROMX",
-      count: `${championCount} Champion offspring`,
-      sort: 270
-    });
-  } else if (championCount >= romRequired) {
-    suffixes.push("ROM");
-    rows.push({
-      titleName: "Register of Merit",
-      titleCode: "ROM",
-      count: `${championCount} Champion offspring`,
-      sort: 271
-    });
-  }
-
-  if (supremeCount >= sprRomxRequired) {
-    suffixes.push("SprROMX");
-    rows.push({
-      titleName: "Supreme Register of Merit Excellent",
-      titleCode: "SprROMX",
-      count: `${supremeCount} SprWCH offspring`,
-      sort: 272
-    });
-  } else if (supremeCount >= sprRomRequired) {
-    suffixes.push("SprROM");
-    rows.push({
-      titleName: "Supreme Register of Merit",
-      titleCode: "SprROM",
-      count: `${supremeCount} SprWCH offspring`,
-      sort: 273
-    });
-  }
-
-  return { suffixes, rows };
-}
-
-async function getTableRows(tableName) {
-  const supabase = getSupabase();
-
-  const { data, error } = await supabase
-    .from(tableName)
-    .select("*")
-    .eq("active", true);
-
-  if (error) {
-    console.warn(tableName + " error:", error.message);
-    return [];
-  }
-
-return data || [];
-}
-
-function fallbackActivityNameFromClass(className) {
-  return String(className || "")
-    .normalize("NFKD")
-    .replace(/[â€â€‘â€’â€“â€”â€•]/g, "-")
-    .replace(/\(\s*\d+\s*entries?\s*\)/gi, "")
-    .replace(/\s*-\s*group\s*\d+/gi, "")
-    .replace(/\s*-\s*division\s*\d+/gi, "")
-    .replace(/\s*-\s*team\s*\d+/gi, "")
-    .replace(/\s*-\s*untitled$/gi, "")
-    .replace(/\s*-\s*[a-z]{1,5}\d*$/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function isHerdingActivityRecord(record) {
-  if (canonicalShowType(record?.show_type) !== "activity") return false;
-
-  const classText = normalizeKey(record?.class);
-  const showText = normalizeKey(record?.show_name);
-  const labelText = normalizeKey(record?.score_label);
-  const combined = `${classText} ${showText} ${labelText}`;
-
-  return (
-    classText === "herding" ||
-    classText.startsWith("herding -") ||
-    classText.includes("herding stakes") ||
-    (
-      combined.includes("herding") &&
-      (
-        combined.includes("stakes") ||
-        combined.includes("instinct") ||
-        /\bpt\b/.test(combined)
-      )
-    )
-  );
-}
-
-function resolveActivityForRecord(record, activityTypes) {
-  /*
-    ENDURANCE NORMALIZATION
-
-    Endurance race names are CLASSES / individual races, not separate activities.
-    Historical and association uploads may not always store activity_key="endurance",
-    so resolve them to the canonical Endurance activity before any class-name fallback.
-
-    Examples that must all total under Endurance:
-      Endurance
-      50km Open Endurance Run
-      200 Km Mares Challenge Endurance Run
-      named Endurance Club stakes / circuit races
-  */
-  const enduranceText = normalizeKey([
-    record?.class,
-    record?.show_name,
-    record?.score_label,
-    record?.activity_key,
-    record?.association_key,
-    record?.association_event_type,
-    record?.endurance_race_name,
-    record?.endurance_race_key
-  ].filter(Boolean).join(" "));
-
-  const isEnduranceRecord = (
-    normalizeKey(record?.association_key) === "endurance club" ||
-    activityBaseKey(record?.activity_key) === "endurance" ||
-    record?.endurance_race_key ||
-    record?.endurance_race_name ||
-    record?.endurance_distance_km !== null && record?.endurance_distance_km !== undefined ||
-    /\bendurance\b/.test(enduranceText)
-  );
-
-  if (isEnduranceRecord) {
-    const enduranceActivity = (activityTypes || []).find(activity => {
-      const key = activityBaseKey(activity?.activity_key);
-      const name = activityBaseKey(activity?.display_name);
-      return key === "endurance" || name === "endurance";
-    });
-
-    return {
-      activity_key: enduranceActivity?.activity_key || "endurance",
-      display_name: enduranceActivity?.display_name || "Endurance"
-    };
-  }
-
-  /*
-    Every Herding class belongs to one activity total.
-
-    Examples that all resolve to "Herding":
-      Herding
-      Herding - Puppy Sheep
-      Herding - Beginners Cattle
-      Herding - PT
-      Herding Instinct Test
-  */
-  if (isHerdingActivityRecord(record)) {
-    const herdingActivity = (activityTypes || []).find(activity => {
-      const key = activityBaseKey(activity?.activity_key);
-      const name = activityBaseKey(activity?.display_name);
-
-      return key === "herding" || name === "herding";
-    });
-
-    return {
-      activity_key: herdingActivity?.activity_key || "herding",
-      display_name: herdingActivity?.display_name || "Herding"
-    };
-  }
-
-  /*
-    Retrieving divisions and open-breed classes are all part of the
-    same Canine Retrieving activity total.
-
-    Examples:
-      Canine Retrieving
-      Retrieving - Open Breeds
-      Retrieving - Novice
-  */
-  const retrievingText = normalizeKey(record?.class);
-  if (
-    retrievingText === "retrieving" ||
-    retrievingText.startsWith("retrieving -") ||
-    retrievingText === "canine retrieving" ||
-    retrievingText.startsWith("canine retrieving -")
-  ) {
-    const retrievingActivity = (activityTypes || []).find(activity => {
-      const key = activityBaseKey(activity?.activity_key);
-      const name = activityBaseKey(activity?.display_name);
-
-      return (
-        key === "canine retrieving" ||
-        name === "canine retrieving"
-      );
-    });
-
-    return {
-      activity_key: retrievingActivity?.activity_key || "canine_retrieving",
-      display_name: retrievingActivity?.display_name || "Canine Retrieving"
-    };
-  }
-
-  /*
-    Prefer the canonical activity_key already stored on the show record.
-
-    The class is the specific event/class the animal entered; activity_key is
-    the parent activity whose points/titles the record belongs to.
-
-    Example:
-      activity_key = "gaiting"
-      class        = "T2: Open Loose Rein TÃ¶lt - Untitled"
-
-    This keeps the detailed Icelandic class visible in the records table while
-    correctly adding its points to Gaiting.
-  */
-  const storedActivityKey = activityBaseKey(record?.activity_key);
-
-  if (storedActivityKey) {
-    const storedActivity = (activityTypes || []).find(activity => {
-      const key = activityBaseKey(activity?.activity_key);
-      const name = activityBaseKey(activity?.display_name);
-
-      return key === storedActivityKey || name === storedActivityKey;
-    });
-
-    if (storedActivity) {
-      return {
-        activity_key: storedActivity.activity_key || record.activity_key,
-        display_name: storedActivity.display_name || storedActivity.activity_key || record.activity_key
-      };
-    }
-
-    /*
-      Even if activity_types is temporarily missing that row, trust the stored
-      key rather than turning a class name into a brand-new activity bucket.
-    */
-    return {
-      activity_key: record.activity_key,
-      display_name: String(record.activity_key || "")
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, char => char.toUpperCase())
-    };
-  }
-
-  /* Legacy fallback for historical records that do not have activity_key. */
-  const matchedActivity = findMatchedActivity(record?.class, activityTypes);
-
-  if (matchedActivity) {
-    return {
-      activity_key: matchedActivity.activity_key || matchedActivity.display_name,
-      display_name: matchedActivity.display_name || matchedActivity.activity_key
-    };
-  }
-
-  const fallbackName = fallbackActivityNameFromClass(record?.class);
-  if (!fallbackName) return null;
-
-  return {
-    activity_key: activityBaseKey(fallbackName),
-    display_name: fallbackName
-  };
-}
-
-function calculateActivityTotals(activityRecords, activityTypes) {
-  const activityTotals = {};
-
-  activityRecords.forEach(record => {
-    const activity = resolveActivityForRecord(record, activityTypes);
-    if (!activity) return;
-
-    const key = activityBaseKey(activity.activity_key || activity.display_name);
-    if (!key) return;
-
-    if (!activityTotals[key]) {
-      activityTotals[key] = {
-        activity_key: key === "show hunter"
-          ? "show_hunter"
-          : (activity.activity_key || key),
-        display_name: key === "show hunter"
-          ? "Show Hunter"
-          : (activity.display_name || fallbackActivityNameFromClass(record.class) || "Unknown Activity"),
-        points: 0
-      };
-    }
-
-    activityTotals[key].points += pointsValue(record);
-  });
-
-  return activityTotals;
-}
-
-function addTotalAwardKeyVariants(targetSet, value) {
-  const base = activityBaseKey(value);
-  if (!base) return;
-
-  targetSet.add(base);
-
-  const withoutSpecies = base
-    .replace(/^(feline|cat)\s+/i, '')
-    .replace(/^(canine|dog)\s+/i, '')
-    .replace(/^(equine|horse)\s+/i, '')
-    .trim();
-
-  if (withoutSpecies) targetSet.add(withoutSpecies);
-
-  if (withoutSpecies && normalizeKey(value).startsWith('cat ')) targetSet.add('feline ' + withoutSpecies);
-  if (withoutSpecies && normalizeKey(value).startsWith('feline ')) targetSet.add('cat ' + withoutSpecies);
-  if (withoutSpecies && normalizeKey(value).startsWith('horse ')) targetSet.add('equine ' + withoutSpecies);
-  if (withoutSpecies && normalizeKey(value).startsWith('equine ')) targetSet.add('horse ' + withoutSpecies);
-}
-
-function getTotalAwardEligibleKeys(animal, totalRules) {
-  const eligible = new Set();
-  const animalSpecies = normalizeKey(animal?.species);
-
-  (totalRules || [])
-    .filter(r => normalizeKey(r.species) === animalSpecies)
-    .forEach(r => addTotalAwardKeyVariants(eligible, r.activity_key));
-
-  if (animalSpecies === 'cat') {
-    const fallbackCatActivities = [
-    'Feline Agility',
-    'Feline Obedience',
-    'Feline Rally',
-    'Fishing',
-    'Feline Retrieving',
-    'Stunt Cat',
-    'Feline Treibball',
-    'Feline Trick',
-    'Feline Vaulting',
-    'Scent Detection',
-    'High Jump'
-  ];
-
-    fallbackCatActivities.forEach(activity => addTotalAwardKeyVariants(eligible, activity));
-  }
-
-  return eligible;
-}
-
-function isTotalAwardEligibleActivity(activity, eligibleKeys) {
-  if (!activity || !eligibleKeys || !eligibleKeys.size) return false;
-
-  const options = new Set();
-  addTotalAwardKeyVariants(options, activity.activity_key);
-  addTotalAwardKeyVariants(options, activity.display_name);
-
-  return [...options].some(key => eligibleKeys.has(key));
-}
-
-function uniqueTitleList(items) {
-  const seen = new Set();
-  const out = [];
-
-  (items || []).forEach(item => {
-    const value = String(item || "").trim();
-    if (!value) return;
-
-    const key = titleCodeKey(value);
-    if (seen.has(key)) return;
-
-    seen.add(key);
-    out.push(value);
-  });
-
-  return out;
-}
-
-function earliestRecordDate(records) {
-  const dates = (records || [])
-    .map(r => String(r?.event_date || "").trim())
-    .filter(Boolean)
-    .sort((a, b) => a.localeCompare(b));
-
-  return dates[0] || "9999-12-31";
-}
-
-function activityTitleEarnedDate(activityKey, activityRecords, activityTypes) {
-  const target = activityBaseKey(activityKey);
-
-  const matching = (activityRecords || []).filter(record => {
-    const activity = resolveActivityForRecord(record, activityTypes);
-    if (!activity) return false;
-
-    const matchedKey = activityBaseKey(activity.activity_key || activity.display_name);
-    return matchedKey === target;
-  });
-
-  return earliestRecordDate(matching);
-}
-
-function manualSuffixDisplayGroup(code) {
-  const key = String(code || "")
-    .toUpperCase()
-    .replace(/\./g, "")
-    .trim();
-
-  if (["CGC", "CGCB", "CGCS", "CGCG", "CGCA", "CGCU"].includes(key)) return "cgc";
-  if (["TT", "TTC", "TTD", "TTH", "TAC", "TAD", "TAH"].includes(key)) return "therapyTemperament";
-
-  return "manual";
-}
-
-function highestManualTitleBySort(codes) {
-  const cleanCodes = (codes || [])
-    .map(code => String(code || "").trim())
-    .filter(Boolean);
-
-  if (!cleanCodes.length) return [];
-
-  return [
-    cleanCodes
-      .slice()
-      .sort((a, b) => manualTitleSort(b) - manualTitleSort(a))[0]
-  ];
-}
-
-function herdingRecordText(record) {
-  return normalizeKey([
-    record?.show_name,
-    record?.class,
-    record?.score_label,
-    record?.placement,
-    record?.activity_key
-  ].filter(Boolean).join(" "));
-}
-
-function herdingPassed(record) {
-  if (record?.passed === true) return true;
-
-  const passedText = normalizeKey(record?.passed);
-  if (["true", "pass", "passed", "qualified", "qualifying"].includes(passedText)) {
-    return true;
-  }
-
-  const text = herdingRecordText(record);
-
-  return (
-    /\b(pass|passed|qualified|qualifying)\b/.test(text) &&
-    !/\b(fail|failed|not qualified|non qualifying)\b/.test(text)
-  );
-}
-
-function isHerdingInstinctRecord(record) {
-  const text = herdingRecordText(record);
-  const activityKey = normalizeKey(record?.activity_key);
-
-  /*
-    Historical Instinct Test uploads did not always save activity_key = herding.
-    Treat an explicit Herding/Instinct Test record as Herding instinct even when
-    that legacy field is blank, while still accepting the newer herding key.
-  */
-  const hasInstinctText = (
-    text.includes("herding instinct") ||
-    text.includes("instinct test") ||
-    text.includes("instinct testing")
-  );
-
-  if (!hasInstinctText) return false;
-
-  return (
-    activityKey === "herding" ||
-    activityKey === "" ||
-    text.includes("herding")
-  );
-}
-
-function herdingStockInfoFromRecord(record) {
-  /*
-    Current Herding uploads may store:
-      class       = "Herding"
-      score_label = "Herding - Puppy Sheep"
-
-    Older standardized records may instead store the full specialization in
-    class itself. Use BOTH record-owned fields as the authority so valid Qs
-    are not lost simply because the uploader kept the generic activity name
-    in the class column.
-  */
-  const classText = normalizeKey(record?.class);
-  const labelText = normalizeKey(record?.score_label);
-  const text = `${classText} ${labelText}`.trim();
-
-  if (/\bcattle\b/.test(text)) {
-    return { name: "Cattle", code: "c", sort: 1 };
-  }
-
-  if (/\bsheep\b/.test(text)) {
-    return { name: "Sheep", code: "s", sort: 2 };
-  }
-
-  if (/\bducks?\b/.test(text)) {
-    return { name: "Ducks", code: "d", sort: 3 };
-  }
-
-  if (/\breindeer\b/.test(text)) {
-    return { name: "Reindeer", code: "r", sort: 4 };
-  }
-
-  return null;
-}
-
-function herdingStockFromRecord(record) {
-  return herdingStockInfoFromRecord(record)?.name || null;
-}
-
-function herdingDivisionFromRecord(record) {
-  /*
-    Never infer a Stakes division from the dog's existing Herding title.
-
-    Use the recorded class plus score_label because current uploads may keep
-    class="Herding" and store "Herding - Beginners Sheep" / "Puppy Sheep"
-    in score_label.
-  */
-  if (isHerdingInstinctRecord(record)) return "Instinct";
-
-  const classText = normalizeKey(record?.class);
-  const labelText = normalizeKey(record?.score_label);
-  const text = `${classText} ${labelText}`.trim();
-
-  if (/\bpuppy\b/.test(text)) return "Puppy";
-  if (/\bbeginners?\b/.test(text)) return "Beginners";
-  if (/\badvanced\b/.test(text)) return "Advanced";
-  if (/\bexpert\b/.test(text)) return "Expert";
-  if (/\bchampionship\b/.test(text)) return "Championship";
-
-  return null;
-}
-
-function normalizeHerdingRule(rule) {
-  return {
-    ...rule,
-    rule_type: normalizeKey(rule?.rule_type),
-    division: String(rule?.division || "").trim(),
-    stock: rule?.stock ? String(rule.stock).trim() : null,
-    title_position: normalizeKey(rule?.title_position || "suffix"),
-    qualifying_scores_required: Number(rule?.qualifying_scores_required || 1),
-    minimum_score:
-      rule?.minimum_score === null ||
-      rule?.minimum_score === undefined ||
-      rule?.minimum_score === ""
-        ? null
-        : Number(rule.minimum_score),
-    progression_rank: Number(rule?.progression_rank || 0),
-    permanent: rule?.permanent === true,
-    requires_pass: rule?.requires_pass === true
-  };
-}
-
-function recordMatchesHerdingRule(record, rawRule) {
-  const rule = normalizeHerdingRule(rawRule);
-
-  if (canonicalShowType(record?.show_type) !== "activity") return false;
-
-  /*
-    Instinct Tests are deliberately checked before the strict activity_key test.
-    Older valid HIC records may have a blank/legacy activity_key, and should still
-    count toward HIC when their class/show text clearly identifies the test.
-  */
-  if (rule.rule_type === "instinct") {
-    if (!isHerdingInstinctRecord(record)) return false;
-    return !rule.requires_pass || herdingPassed(record);
-  }
-
-  /*
-    Current records should normally use activity_key="herding", but older
-    valid records and a few uploader generations can have a blank key while
-    still clearly identifying Herding in class/score_label/show_name.
-  */
-  const activityKey = normalizeKey(record?.activity_key);
-
-  /*
-    Do not use the bare word "herding" as the legacy fallback.
-
-    Other activities legitimately contain Herding as a breed/group label, e.g.
-      Fast CAT - HERDING - Group 1
-      Barn Hunt - Herding - Group 1
-      Hydrodash - Herding - Group 1
-
-    A Stakes record must therefore either:
-      1) carry the canonical activity_key="herding", OR
-      2) have no stored activity_key and contain an actual parseable Herding
-         Stakes specialization (division + stock) in class/score_label.
-
-    This preserves valid older Stakes uploads without allowing unrelated
-    Herding-group records into the specialization title engine.
-  */
-  const division = herdingDivisionFromRecord(record);
-  const stock = herdingStockFromRecord(record);
-
-  const hasCanonicalHerdingKey = activityKey === "herding";
-  const isLegacyHerdingStakes =
-    activityKey === "" &&
-    Boolean(division) &&
-    Boolean(stock);
-
-  if (!hasCanonicalHerdingKey && !isLegacyHerdingStakes) return false;
-
-  if (rule.rule_type !== "stakes") return false;
-  if (isHerdingInstinctRecord(record)) return false;
-
-  if (normalizeKey(division) !== normalizeKey(rule.division)) return false;
-  if (normalizeKey(stock) !== normalizeKey(rule.stock)) return false;
-
-  /*
-    For scored Stakes rules, the numeric score is authoritative. This keeps
-    older legitimate 240+ records from being rejected just because the legacy
-    upload never stored passed=true.
-  */
-  if (rule.requires_pass && rule.minimum_score === null && !herdingPassed(record)) return false;
-
-  if (rule.minimum_score !== null) {
-    const score = Number(record?.score);
-
-    /*
-      Historical Herding Stakes records may pre-date the modern passed /
-      score_label / activity_key fields. If a real numeric score is stored,
-      the score itself is authoritative:
-
-        240+  = qualifying score
-        <240  = non-qualifying score
-
-      Do NOT require passed=true for these older scored records.
-      Truly scoreless historical Stakes records remain visible but do not
-      count toward the 240+ specialization total.
-    */
-    if (!Number.isFinite(score)) return false;
-    if (score < rule.minimum_score) return false;
-  }
-
-  return true;
-}
-
-function herdingBaseCodeForDivision(division) {
-  const key = normalizeKey(division);
-
-  if (key === "puppy") return "PS";
-  if (key === "beginners") return "HS";
-  if (key === "advanced") return "HA";
-  if (key === "expert") return "HX";
-  if (key === "championship") return "HCh";
-
-  return null;
-}
-
-function herdingDivisionSort(division) {
-  const key = normalizeKey(division);
-
-  if (key === "puppy") return 0;
-  if (key === "beginners") return 1;
-  if (key === "advanced") return 2;
-  if (key === "expert") return 3;
-  if (key === "championship") return 4;
-
-  return 99;
-}
-
-function combineHerdingStockRules(rules) {
-  /*
-    Same-level stock specializations combine:
-      HSs + HSd -> HSsd
-
-    Different levels remain separate:
-      Sheep Advanced + Ducks Started -> HSd HAs
-  */
-  const grouped = {};
-
-  (rules || []).forEach(rule => {
-    const baseCode = herdingBaseCodeForDivision(rule.division);
-    const stockInfo = herdingStockInfoFromRecord({ class: rule.stock });
-
-    if (!baseCode || !stockInfo) return;
-
-    const groupKey = `${normalizeKey(rule.title_position)}|${baseCode}`;
-
-    if (!grouped[groupKey]) {
-      grouped[groupKey] = {
-        baseCode,
-        title_position: rule.title_position,
-        division: rule.division,
-        progression_rank: rule.progression_rank,
-        stocks: []
-      };
-    }
-
-    grouped[groupKey].stocks.push(stockInfo);
-  });
-
-  return Object.values(grouped)
-    .sort((a, b) => {
-      return (
-        herdingDivisionSort(a.division) - herdingDivisionSort(b.division) ||
-        Number(a.progression_rank || 0) - Number(b.progression_rank || 0)
-      );
-    })
-    .map(group => {
-      const stockCodes = group.stocks
-        .slice()
-        .sort((a, b) => a.sort - b.sort)
-        .map(stock => stock.code)
-        .join("");
-
-      return {
-        code: group.baseCode + stockCodes,
-        title_position: group.title_position
-      };
-    });
-}
-
-function calculateHerdingTitles(records, animal, herdingRules) {
-  if (normalizeKey(animal?.species) !== "dog") {
-    return { prefixes: [], suffixes: [], rows: [] };
-  }
-
-  const activeRules = (herdingRules || [])
-    .filter(rule => rule?.active !== false)
-    .map(normalizeHerdingRule);
-
-  if (!activeRules.length) {
-    return { prefixes: [], suffixes: [], rows: [] };
-  }
-
-  /*
-    FINAL HERDING V2 SPECIALIZATION LADDER
-
-      Puppy        -> PS_
-      Beginners    -> HS_
-      Advanced     -> HA_
-      Expert       -> HX_
-      Championship -> HCh_
-
-    Every Stakes specialization requires 5 scores of 240+
-    in the exact same division + stock.
-
-    The normal/base HS / HA / HX / HCh. Herding titles do not
-    affect specialization placement.
-  */
-  const evaluatedRules = activeRules.map(rule => {
-    const qualifyingRecords = (records || []).filter(record =>
-      recordMatchesHerdingRule(record, rule)
-    );
-
-    return {
-      ...rule,
-      qualifyingCount: qualifyingRecords.length,
-      earned:
-        qualifyingRecords.length >= rule.qualifying_scores_required
-    };
-  });
-
-  const earnedRules = evaluatedRules.filter(rule => rule.earned);
-
-  /*
-    HIC and any other non-progression rules remain permanently.
-    Puppy Stakes rules are permanent and never disappear when the
-    dog begins adult specialization work.
-  */
-  const nonStockPermanentEarned = earnedRules.filter(rule =>
-    (rule.permanent || !rule.progression_group) &&
-    !rule.stock
-  );
-
-  const puppyStockEarned = earnedRules.filter(rule =>
-    rule.rule_type === "stakes" &&
-    normalizeKey(rule.division) === "puppy" &&
-    Boolean(rule.stock)
-  );
-
-  /*
-    Adult progression is independent by stock.
-
-    The corrected Supabase rule table uses progression groups:
-      adult_sheep
-      adult_cattle
-      adult_ducks
-      adult_reindeer
-
-    Only the highest earned adult level in each stock group displays.
-  */
-  const bestProgressiveByGroup = {};
-
-  earnedRules
-    .filter(rule =>
-      rule.rule_type === "stakes" &&
-      normalizeKey(rule.division) !== "puppy" &&
-      !rule.permanent &&
-      rule.progression_group
-    )
-    .forEach(rule => {
-      const group = String(rule.progression_group);
-      const current = bestProgressiveByGroup[group];
-
-      if (
-        !current ||
-        rule.progression_rank > current.progression_rank
-      ) {
-        bestProgressiveByGroup[group] = rule;
-      }
-    });
-
-  const prefixes = [];
-  const suffixes = [];
-
-  /*
-    Non-stock permanent titles such as HIC stay as their own codes.
-  */
-  nonStockPermanentEarned
-    .slice()
-    .sort((a, b) =>
-      String(a.title_code || "").localeCompare(String(b.title_code || ""))
-    )
-    .forEach(rule => {
-      if (rule.title_position === "prefix") {
-        prefixes.push(rule.title_code);
-      } else {
-        suffixes.push(rule.title_code);
-      }
-    });
-
-  /*
-    Puppy stock titles can coexist and are combined by stock letter.
-    Example:
-      PSs + PSd -> PSsd
-  */
-  combineHerdingStockRules(puppyStockEarned)
-    .forEach(title => {
-      if (title.title_position === "prefix") {
-        prefixes.push(title.code);
-      } else {
-        suffixes.push(title.code);
-      }
-    });
-
-  /*
-    Adult stock titles combine ONLY when the current highest title
-    for those stocks is at the same level.
-
-    Examples:
-      HSs + HSd -> HSsd
-      HSd + HAs -> HSd HAs
-  */
-  combineHerdingStockRules(Object.values(bestProgressiveByGroup))
-    .forEach(title => {
-      if (title.title_position === "prefix") {
-        prefixes.push(title.code);
-      } else {
-        suffixes.push(title.code);
-      }
-    });
-
-  /*
-    Show qualification progress as soon as at least one qualifying
-    score/pass exists. Incomplete titles do not enter the registered
-    name until the rule threshold is met.
-  */
-  const progressRows = evaluatedRules
-    .filter(rule => rule.qualifyingCount > 0)
-    .sort((a, b) => {
-      const aInstinct = a.rule_type === "instinct" ? 0 : 1;
-      const bInstinct = b.rule_type === "instinct" ? 0 : 1;
-
-      return (
-        aInstinct - bInstinct ||
-        herdingDivisionSort(a.division) - herdingDivisionSort(b.division) ||
-        Number(a.progression_rank || 0) - Number(b.progression_rank || 0) ||
-        String(a.stock || "").localeCompare(String(b.stock || ""))
-      );
-    })
-    .map((rule, index) => {
-      const requirementLabel =
-        rule.rule_type === "instinct"
-          ? `${Math.min(rule.qualifyingCount, rule.qualifying_scores_required)}/${rule.qualifying_scores_required} qualifying pass${rule.qualifying_scores_required === 1 ? "" : "es"}`
-          : `${Math.min(rule.qualifyingCount, rule.qualifying_scores_required)}/${rule.qualifying_scores_required} qualifying scores`;
-
-      const progressName =
-        rule.rule_type === "instinct"
-          ? rule.title_name || "Herding Instinct Certificate"
-          : rule.earned
-            ? rule.title_name
-            : `${rule.division}${rule.stock ? " | " + rule.stock : ""} | In Progress`;
-
-      return {
-        titleName: progressName,
-        titleCode: rule.title_code,
-        count: requirementLabel,
-        sort: 700 + index
-      };
-    });
-
-  return {
-    prefixes: uniqueTitleList(prefixes),
-    suffixes: uniqueTitleList(suffixes),
-    rows: progressRows
-  };
-}
-
-
-function calculateTestingTitles(records, animal) {
-  const species = normalizeKey(animal?.species);
-  const suffixes = [];
-  const rows = [];
-  const speciesCodes = {
-    dog: { temperament: "TTD", therapy: "TAD" },
-    cat: { temperament: "TTC", therapy: "TAC" },
-    horse: { temperament: "TTH", therapy: "TAH" }
-  };
-  const codes = speciesCodes[species];
-  if (!codes) return { suffixes, rows };
-
-  const temperamentPassed = (records || []).some(r =>
-    canonicalShowType(r?.show_type) === "activity" &&
-    testingCertificateLabel(r) === "Temperament Testing" &&
-    (Number(r?.score) >= 110 || recordPassed(r) === true)
-  );
-  if (temperamentPassed) {
-    suffixes.push(codes.temperament);
-    const record = (records || []).find(r =>
-      canonicalShowType(r?.show_type) === "activity" &&
-      testingCertificateLabel(r) === "Temperament Testing" &&
-      (Number(r?.score) >= 110 || recordPassed(r) === true)
-    );
-    rows.push({
-      titleName: manualTitleName(codes.temperament),
-      titleCode: codes.temperament,
-      count: record ? manualScoreLabel(record) : "Passed",
-      sort: 760
-    });
-  }
-
-  const therapyPasses = (records || []).filter(r =>
-    canonicalShowType(r?.show_type) === "activity" &&
-    testingCertificateLabel(r) === "Therapy Animal" &&
-    (Number(r?.score) >= 110 || recordPassed(r) === true)
-  ).length;
-  if (therapyPasses) {
-    suffixes.push(codes.therapy);
-    const record = (records || []).find(r =>
-      canonicalShowType(r?.show_type) === "activity" &&
-      testingCertificateLabel(r) === "Therapy Animal" &&
-      (Number(r?.score) >= 110 || recordPassed(r) === true)
-    );
-    rows.push({
-      titleName: manualTitleName(codes.therapy),
-      titleCode: codes.therapy,
-      count: therapyPasses === 1
-        ? (record ? manualScoreLabel(record) : "1 Pass")
-        : `${therapyPasses} Passes`,
-      sort: 761
-    });
-  }
-
-  if (species === "dog") {
-    const levels = [
-      {key:"cgc",code:"CGC",name:"Canine Good Citizen",rank:1},
-      {key:"cgcb",code:"CGCB",name:"Canine Good Citizen Bronze",rank:2},
-      {key:"cgcs",code:"CGCS",name:"Canine Good Citizen Silver",rank:3},
-      {key:"cgcg",code:"CGCG",name:"Canine Good Citizen Gold",rank:4},
-      {key:"cgca",code:"CGCA",name:"Canine Good Citizen Advanced",rank:5},
-      {key:"cgcu",code:"CGCU",name:"Canine Good Citizen Urban",rank:6}
-    ];
-    const earned=levels.filter(level => (records || []).some(r =>
-      canonicalShowType(r?.show_type)==="activity" &&
-      recordPassed(r)===true &&
-      (normalizeKey(r?.activity_key)===level.key || normalizeKey(r?.score_label)===normalizeKey(level.code) || normalizeKey(r?.class)===normalizeKey(level.name))
-    ));
-    if (earned.length) {
-      const highest=earned.sort((a,b)=>b.rank-a.rank)[0];
-      suffixes.push(highest.code);
-      rows.push({titleName:highest.name,titleCode:highest.code,count:"Passed",sort:762});
-    }
-  }
-  return { suffixes: uniqueTitleList(suffixes), rows };
-}
-
-
-const SS_ENDURANCE_TITLE_RACES = [{"key":"northern_circuit_polar_trek","name":"Polar Trek","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Host Dependent","distance_km":850,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_highland_challenge","name":"Highland Challenge","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":155,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_viking_cup","name":"Viking Cup","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":165,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_fjord_expedition","name":"Fjord Expedition","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_siberian_plate","name":"Siberian Plate","circuit":"Northern Circuit","series":null,"grade":"I","conference":"Eastern","distance_km":1500,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_baltic_challenge","name":"Baltic Challenge","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":350,"event_kind":"rated","requires_endurance_title":true},{"key":"northern_circuit_celtic_crossing","name":"Celtic Crossing","circuit":"Northern Circuit","series":null,"grade":"III","conference":"Western","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_saudi_cup","name":"Saudi Cup","circuit":"Desert Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_marathon_des_sables","name":"Marathon des Sables","circuit":"Desert Circuit","series":null,"grade":"III","conference":"Western","distance_km":260,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_atlas_challenge","name":"Atlas Challenge","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Western","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_nile_expedition","name":"Nile Expedition","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":850,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_dubai_crown_prince_conference","name":"Dubai Crown Prince Conference","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":150,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_karakum_crossing","name":"Karakum Crossing","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"desert_circuit_wadi_rum_challenge","name":"Wadi Rum Challenge","circuit":"Desert Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_mongol_derby","name":"Mongol Derby","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_turkmen_s_plate","name":"Turkmen’s Plate","circuit":"Steppe Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":250,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_silk_road_classic","name":"Silk Road Classic","circuit":"Steppe Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_eurasia_challenge","name":"Eurasia Challenge","circuit":"Steppe Circuit","series":null,"grade":"I","conference":"Both","distance_km":4000,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_dragon_trail","name":"Dragon Trail","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_altai_eagle_ride","name":"Altai Eagle Ride","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"steppe_circuit_kazakh_eagle_cup","name":"Kazakh Eagle Cup","circuit":"Steppe Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_new_year_s_cup","name":"New Year’s Cup","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":300,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_tevis_cup","name":"Tevis Cup","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":100,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_continental_divide","name":"Continental Divide","circuit":"North American Frontier Circuit","series":null,"grade":"I","conference":"Western","distance_km":5000,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_yukon_gold_rush","name":"Yukon Gold Rush","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":950,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_route_66_classic","name":"Route 66 Classic","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_maya_mountain_challenge","name":"Maya Mountain Challenge","circuit":"North American Frontier Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"north_american_frontier_circuit_volc_n_trail_classic","name":"Volcán Trail Classic","circuit":"North American Frontier Circuit","series":null,"grade":"II","conference":"Western","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_gaucho_derby","name":"Gaucho Derby","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_pampas_classic","name":"Pampas Classic","circuit":"South American Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_andes_crossing","name":"Andes Crossing","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_amazon_basin_trek","name":"Amazon Basin Trek","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_atacama_crossing","name":"Atacama Crossing","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_inca_trail_endurance","name":"Inca Trail Endurance","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"south_american_circuit_pantanal_expedition","name":"Pantanal Expedition","circuit":"South American Circuit","series":null,"grade":"II","conference":"Western","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_outback_challenge","name":"Outback Challenge","circuit":"Oceania Circuit","series":null,"grade":"I","conference":"Eastern","distance_km":2600,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_great_barrier_trek","name":"Great Barrier Trek","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":900,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_tasman_trail_classic","name":"Tasman Trail Classic","circuit":"Oceania Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_southern_alps_ride","name":"Southern Alps Ride","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_coral_coast_challenge","name":"Coral Coast Challenge","circuit":"Oceania Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":350,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_kimberley_expedition","name":"Kimberley Expedition","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"oceania_circuit_southern_ocean_run","name":"Southern Ocean Run","circuit":"Oceania Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":550,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_great_rift_challenge","name":"Great Rift Challenge","circuit":"African Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_serengeti_trek","name":"Serengeti Trek","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_kalahari_classic","name":"Kalahari Classic","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_okavango_challenge","name":"Okavango Challenge","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_cape_frontier_ride","name":"Cape Frontier Ride","circuit":"African Circuit","series":null,"grade":"II","conference":"Host Dependent","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_drakensberg_traverse","name":"Drakensberg Traverse","circuit":"African Circuit","series":null,"grade":"I","conference":"Host Dependent","distance_km":800,"event_kind":"rated","requires_endurance_title":true},{"key":"african_circuit_kilimanjaro_challenge","name":"Kilimanjaro Challenge","circuit":"African Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":750,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_aegean_odyssey","name":"Aegean Odyssey","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_adriatic_classic","name":"Adriatic Classic","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_sicilian_volcano_run","name":"Sicilian Volcano Run","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Western","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_iberian_coast_challenge","name":"Iberian Coast Challenge","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_cyprus_crossing","name":"Cyprus Crossing","circuit":"Mediterranean Circuit","series":null,"grade":"III","conference":"Host Dependent","distance_km":300,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_amalfi_coast_classic","name":"Amalfi Coast Classic","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"mediterranean_circuit_dalmatian_coast_ride","name":"Dalmatian Coast Ride","circuit":"Mediterranean Circuit","series":null,"grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_mekong_expedition","name":"Mekong Expedition","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":700,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_emerald_jungle_challenge","name":"Emerald Jungle Challenge","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_borneo_rainforest_run","name":"Borneo Rainforest Run","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":450,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_island_kingdom_classic","name":"Island Kingdom Classic","circuit":"Southeast Asia Circuit","series":null,"grade":"III","conference":"Eastern","distance_km":400,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_dragon_s_peninsula_trek","name":"Dragon’s Peninsula Trek","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":650,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_angkor_heritage_ride","name":"Angkor Heritage Ride","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"southeast_asia_circuit_java_volcano_challenge","name":"Java Volcano Challenge","circuit":"Southeast Asia Circuit","series":null,"grade":"II","conference":"Eastern","distance_km":600,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_ruby","name":"The Ruby","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_opal","name":"The Opal","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_emerald","name":"The Emerald","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":500,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_sapphire","name":"The Sapphire","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_pearl","name":"The Pearl","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Eastern","distance_km":1100,"event_kind":"rated","requires_endurance_title":true},{"key":"world_gemstone_tour_the_diamond","name":"The Diamond","circuit":"World Tour","series":"gemstone","grade":"II","conference":"Western","distance_km":1000,"event_kind":"rated","requires_endurance_title":true},{"key":"world_crystal_tour_the_quartz","name":"The Quartz","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_jade","name":"The Jade","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_amber","name":"The Amber","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_garnet","name":"The Garnet","circuit":"World Tour","series":"crystal","grade":null,"conference":"Western","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_onyx","name":"The Onyx","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":300,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_crystal_tour_the_topaz","name":"The Topaz","circuit":"World Tour","series":"crystal","grade":null,"conference":"Eastern","distance_km":250,"event_kind":"world_tour","requires_endurance_title":false},{"key":"world_tour_amazing_race","name":"The Amazing Race","circuit":"World Tour","series":"amazing_race","grade":null,"conference":"Host Dependent","distance_km":1200,"event_kind":"team","requires_endurance_title":false},{"key":"world_the_western_finals","name":"The Western Finals","circuit":"World Tour","series":"conference_final","grade":"INV","conference":"Western","distance_km":1000,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Winner of any Western stakes race"},{"key":"world_the_eastern_challenge","name":"The Eastern Challenge","circuit":"World Tour","series":"conference_final","grade":"INV","conference":"Eastern","distance_km":1000,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Winner of any Eastern stakes race"},{"key":"world_the_invitational","name":"The Invitational","circuit":"World Tour","series":"invitational","grade":"INV","conference":"International","distance_km":1500,"event_kind":"invitational","requires_endurance_title":false,"qualification_text":"Grade I/II stakes winner, top three in either final, ENO title, or full series winner"}];
-
-function calculateIcelandicAssociationTitles(records, animal) {
-  if (normalizeKey(animal?.species) !== "horse") {
-    return { prefixes: [], suffixes: [], rows: [] };
-  }
-
-  const ihass = (records || []).filter(record =>
-    normalizeKey(record?.association_key) === "ihass"
-  );
-
-  if (!ihass.length) {
-    return { prefixes: [], suffixes: [], rows: [] };
-  }
-
-  const pointsFor = eventType =>
-    ihass
-      .filter(record => normalizeKey(record?.association_event_type) === eventType)
-      .reduce((sum, record) => sum + pointsValue(record), 0);
-
-  const halterPoints = pointsFor("halter");
-  const gaitingPoints = pointsFor("gaiting");
-  const breedingPoints = pointsFor("breeding");
-
-  const breedingCertificates = ihass.filter(record =>
-    normalizeKey(record?.association_event_type) === "breeding" &&
-    Number.isFinite(Number(record?.score)) &&
-    Number(record.score) >= 120
-  ).length;
-
-  const prefixes = [];
-  const rows = [];
-
-  // HALTER: show highest earned title, otherwise next target.
-  if (halterPoints >= 1500) {
-    prefixes.push("IHGCh.");
-    rows.push({
-      category:"Halter",
-      title:"Icelandic Horse Grand Champion",
-      code:"IHGCh.",
-      requirement:"1,500 IHASS Halter points",
-      current:`${halterPoints.toLocaleString()} points`,
-      earned:true,
-      sort:780
-    });
-  } else if (halterPoints >= 500) {
-    prefixes.push("IHCh.");
-    rows.push({
-      category:"Halter",
-      title:"Icelandic Horse Champion",
-      code:"IHCh.",
-      requirement:"500 IHASS Halter points",
-      current:`${halterPoints.toLocaleString()} points`,
-      earned:true,
-      sort:780
-    });
-  } else {
-    rows.push({
-      category:"Halter",
-      title:"Icelandic Horse Champion",
-      code:"IHCh.",
-      requirement:"500 IHASS Halter points",
-      current:`${halterPoints.toLocaleString()}/500 points`,
-      earned:false,
-      sort:780
-    });
-  }
-
-  // GAITING
-  if (gaitingPoints >= 500) {
-    prefixes.push("GSGCh.");
-    rows.push({
-      category:"Gaiting",
-      title:"Gaiting Show Grand Champion",
-      code:"GSGCh.",
-      requirement:"500 IHASS Gaiting points",
-      current:`${gaitingPoints.toLocaleString()} points`,
-      earned:true,
-      sort:781
-    });
-  } else if (gaitingPoints >= 250) {
-    prefixes.push("GSCh.");
-    rows.push({
-      category:"Gaiting",
-      title:"Gaiting Show Champion",
-      code:"GSCh.",
-      requirement:"250 IHASS Gaiting points",
-      current:`${gaitingPoints.toLocaleString()} points`,
-      earned:true,
-      sort:781
-    });
-  } else {
-    rows.push({
-      category:"Gaiting",
-      title:"Gaiting Show Champion",
-      code:"GSCh.",
-      requirement:"250 IHASS Gaiting points",
-      current:`${gaitingPoints.toLocaleString()}/250 points`,
-      earned:false,
-      sort:781
-    });
-  }
-
-  // BREEDING
-  if (breedingCertificates >= 8 && breedingPoints >= 1200) {
-    prefixes.push("BSGCh.");
-    rows.push({
-      category:"Breeding",
-      title:"Breeding Show Grand Champion",
-      code:"BSGCh.",
-      requirement:"8 certificates + 1,200 IHASS Breeding points",
-      current:`${breedingCertificates} certificates | ${breedingPoints.toLocaleString()} points`,
-      earned:true,
-      sort:782
-    });
-  } else if (breedingCertificates >= 3 && breedingPoints >= 500) {
-    prefixes.push("BSCh.");
-    rows.push({
-      category:"Breeding",
-      title:"Breeding Show Champion",
-      code:"BSCh.",
-      requirement:"3 certificates + 500 IHASS Breeding points",
-      current:`${breedingCertificates} certificates | ${breedingPoints.toLocaleString()} points`,
-      earned:true,
-      sort:782
-    });
-  } else {
-    rows.push({
-      category:"Breeding",
-      title:"Breeding Show Champion",
-      code:"BSCh.",
-      requirement:"3 certificates + 500 IHASS Breeding points",
-      current:`${breedingCertificates}/3 certificates | ${breedingPoints.toLocaleString()}/500 points`,
-      earned:false,
-      sort:782
-    });
-  }
-
-  return {
-    prefixes: uniqueTitleList(prefixes),
-    suffixes: [],
-    rows
-  };
-}
-
-
-function enduranceNumericPlacement(record) {
-  const match = String(record?.placement || "").match(/\d+/);
-  return match ? Number(match[0]) : null;
-}
-
-function enduranceSeason(record) {
-  const explicit = Number(record?.endurance_season);
-  if (Number.isFinite(explicit) && explicit > 1900) return explicit;
-
-  const dateText = String(record?.event_date || "");
-  const match = dateText.match(/^(\d{4})/);
-  return match ? Number(match[1]) : null;
-}
-
-function enduranceTitleRaceDefinition(record) {
-  const key = String(record?.endurance_race_key || "");
-  return SS_ENDURANCE_TITLE_RACES.find(race => race.key === key) || null;
-}
-
-
-const SS_HUNTING_TITLE_DEFS = {
-  flushing:{label:'Flushing',code:'Fl',specializations:{pheasant:['Pheasant','p'],grouse:['Grouse','g'],woodcock:['Woodcock','w'],quail:['Quail','q'],rabbit:['Rabbit','r']}},
-  retrieving:{label:'Retrieving',code:'Rt',specializations:{duck:['Duck','d'],goose:['Goose','g'],pheasant:['Pheasant','p'],grouse:['Grouse','gr']}},
-  trailing:{label:'Scent / Trailing',code:'Tr',specializations:{rabbit:['Rabbit','r'],hare:['Hare','h'],fox:['Fox','f'],deer:['Deer','d']}},
-  treeing_baying:{label:'Treeing / Baying',code:'TB',specializations:{raccoon:['Raccoon','r'],squirrel:['Squirrel','s'],boar:['Boar','bo'],bear:['Bear','br'],cougar:['Cougar','c']}},
-  ratting:{label:'Ratting',code:'Rat',specializations:{barn:['Barn','b'],farmyard:['Farmyard','f'],stack_den:['Stack / Den','s'],urban:['Urban','u']}},
-  versatile:{label:'Versatile Hunting',code:'VH',specializations:{upland:['Upland','u'],waterfowl:['Waterfowl','w'],woodland:['Woodland','f'],mixed_field:['Mixed Field','m']}},
-  coursing:{label:'Coursing',code:'Co',specializations:{rabbit:['Rabbit','r'],hare:['Hare','h'],fox:['Fox','f'],coyote_jackal:['Coyote / Jackal','c'],deer_gazelle:['Deer / Gazelle','d']}},
-  falconry:{label:'Falconry',code:'Fa',specializations:{rabbit:['Rabbit','r'],hare:['Hare','h'],pheasant:['Pheasant','p'],grouse:['Grouse','g'],quail:['Quail','q'],waterfowl:['Waterfowl','w']}},
-  pack_hunting:{label:'Pack Hunting',code:'PH',specializations:{rabbit:['Rabbit','r'],hare:['Hare','h'],fox:['Fox','f'],coyote_jackal:['Coyote / Jackal','c'],boar:['Boar','b'],deer:['Deer','d']}},
-  catch_dogs:{label:'Catch Dogs',code:'CD',specializations:{boar:['Boar','b'],cattle:['Cattle','c']}},
-  tolling:{label:'Tolling',code:'Tl',specializations:{waterfowl:['Waterfowl','w']}},
-  puffin_hunting:{label:'Puffin Hunting',code:'Pu',specializations:{puffin:['Puffin','p']}}
-};
-
-const SS_HUNTING_TITLE_LEVELS = {
-  beginners:{label:'Beginners',prefix:'B',required:5},
-  expert:{label:'Expert',prefix:'E',required:10},
-  masters:{label:'Masters',prefix:'M',required:15}
-};
-
-function calculateHuntingClubTitles(records, animal) {
-  if (normalizeKey(animal?.species) !== 'dog') {
-    return {suffixes:[],rows:[]};
-  }
-
-  const club = (records || []).filter(record =>
-    normalizeKey(record?.association_key) === 'hunting club' &&
-    normalizeKey(record?.association_event_type) === 'field test'
-  );
-
-  if (!club.length) return {suffixes:[],rows:[]};
-
-  const grouped = {};
-
-  club.forEach(record => {
-    const family = normalizeKey(record?.hunting_family).replace(/\s+/g, "_");
-    const specialization = normalizeKey(record?.hunting_specialization).replace(/\s+/g, "_");
-    const level = normalizeKey(record?.hunting_level);
-
-    if (!family || !specialization || !SS_HUNTING_TITLE_LEVELS[level]) return;
-
-    const key = family + '::' + specialization;
-
-    if (!grouped[key]) {
-      grouped[key] = {
-        family,
-        specialization,
-        counts:{beginners:0,expert:0,masters:0}
-      };
-    }
-
-    if (recordPassed(record) === true) {
-      grouped[key].counts[level]++;
-    }
-  });
-
-  const suffixes = [];
-  const rows = [];
-
-  Object.values(grouped).forEach(group => {
-    const familyDef = SS_HUNTING_TITLE_DEFS[group.family];
-    const specDef = familyDef?.specializations?.[group.specialization];
-    if (!familyDef || !specDef) return;
-
-    const beginnerDef = SS_HUNTING_TITLE_LEVELS.beginners;
-    const expertDef = SS_HUNTING_TITLE_LEVELS.expert;
-    const mastersDef = SS_HUNTING_TITLE_LEVELS.masters;
-
-    let displayLevel = "beginners";
-    let earned = false;
-
-    if (group.counts.masters >= mastersDef.required) {
-      displayLevel = "masters";
-      earned = true;
-    } else if (group.counts.expert >= expertDef.required) {
-      displayLevel = "expert";
-      earned = true;
-    } else if (group.counts.beginners >= beginnerDef.required) {
-      displayLevel = "beginners";
-      earned = true;
-    } else {
-      displayLevel = "beginners";
-    }
-
-    const levelDef = SS_HUNTING_TITLE_LEVELS[displayLevel];
-    const current = group.counts[displayLevel] || 0;
-    const code = levelDef.prefix + familyDef.code + specDef[1];
-
-    if (earned) suffixes.push(code);
-
-    rows.push({
-      category: familyDef.label + " | " + specDef[0],
-      title: levelDef.label + " " + familyDef.label + " | " + specDef[0],
-      code,
-      requirement: levelDef.required + " qualifying tests",
-      current: current + "/" + levelDef.required + " qualifications",
-      earned,
-      sort: 770
-    });
-  });
-
-  return {
-    suffixes: uniqueTitleList(suffixes),
-    rows
-  };
-}
-
-function isEnduranceClubRecord(record) {
-  return normalizeKey(record?.association_key) === "endurance club";
-}
-
-
-function enduranceGradeKey(record) {
-  const raw = normalizeKey(record?.endurance_grade);
-
-  if (["iii","grade iii","3","grade 3"].includes(raw)) return "III";
-  if (["ii","grade ii","2","grade 2"].includes(raw)) return "II";
-  if (["i","grade i","1","grade 1"].includes(raw)) return "I";
-  if (raw === "inv" || raw === "invitational" || raw.includes("invitational")) return "INV";
-
-  return String(record?.endurance_grade || "").trim().toUpperCase();
-}
-
-function getEnduranceTitleProgressData(records, animal) {
-  if (normalizeKey(animal?.species) !== "horse") {
-    return { rows: [], prefixes: [], suffixes: [] };
-  }
-
-  const club = (records || []).filter(isEnduranceClubRecord);
-  if (!club.length) return { rows: [], prefixes: [], suffixes: [] };
-
-  const rows = [];
-  const prefixes = [];
-  const suffixes = [];
-
-  const add = ({category,title,code,requirement,current,earned,position="suffix",sort=0}) => {
-    rows.push({category,title,code,requirement,current,earned,position,sort});
-    if (earned && code) {
-      if (position === "prefix") prefixes.push(code);
-      else suffixes.push(code);
-    }
-  };
-
-  const completed = club.filter(record =>
-    record?.endurance_completed !== false &&
-    normalizeKey(record?.association_event_type) !== "prospect" &&
-    normalizeKey(record?.association_event_type) !== "circuit champion"
-  );
-
-  const totalDistance = completed.reduce(
-    (sum, record) => sum + Number(record?.endurance_distance_km || 0), 0
-  );
-  const totalWinnings = club.reduce(
-    (sum, record) => sum + Number(record?.endurance_winnings || 0), 0
-  );
-
-  const winsByGrade = { I:0, II:0, III:0, INV:0 };
-  club.forEach(record => {
-    if (enduranceNumericPlacement(record) !== 1) return;
-    const grade = enduranceGradeKey(record);
-    if (winsByGrade[grade] !== undefined) winsByGrade[grade]++;
-  });
-
-  [
-    ["III","EdSIII","Endurance Club Stakes III Winner",1,"suffix"],
-    ["III","MEdSIII","Multi Endurance Club Stakes III Winner",2,"suffix"],
-    ["III","GChEdSIII","Grand Champion Endurance Stakes III Winner",5,"prefix"],
-    ["II","EdSII","Endurance Club Stakes II Winner",1,"suffix"],
-    ["II","MEdSII","Multi Endurance Club Stakes II Winner",2,"suffix"],
-    ["II","GChEdSII","Grand Champion Endurance Stakes II Winner",5,"prefix"],
-    ["I","EdSI","Endurance Club Stakes I Winner",1,"suffix"],
-    ["I","MEdSI","Multi Endurance Club Stakes I Winner",2,"suffix"]
-  ].forEach(([grade,code,title,need,position], index) => {
-    const current = winsByGrade[grade] || 0;
-    add({category:`Grade ${grade} Stakes`,title,code,requirement:`${need} win${need===1?'':'s'}`,current:`${current} win${current===1?'':'s'}`,earned:current>=need,position,sort:100+index});
-  });
-
-  const gradeIGrandCurrent = (winsByGrade.I || 0) + (winsByGrade.INV || 0);
-  add({
-    category:"Grade I Stakes", title:"Grand Champion Endurance Stakes I Winner", code:"GChEdSI",
-    requirement:"5 Grade I / Invitational wins", current:`${gradeIGrandCurrent} qualifying wins`,
-    earned:gradeIGrandCurrent>=5, position:"prefix", sort:109
-  });
-
-  [
-    [20000,"EdDCh","Endurance Club Distance Champion","suffix"],
-    [30000,"EdDGCh","Endurance Club Distance Grand Champion","suffix"],
-    [50000,"EdDHoF","Endurance Club Distance Hall of Fame","prefix"],
-    [100000,"EdDL","Endurance Club Distance Legend","prefix"]
-  ].forEach(([need,code,title,position], index) => add({
-    category:"Distance",title,code,requirement:`${Number(need).toLocaleString()} km`,
-    current:`${Math.round(totalDistance).toLocaleString()} km`,earned:totalDistance>=need,position,sort:200+index
-  }));
-
-  [
-    [50000,"EdHE","Endurance Club High Earner","suffix"],
-    [100000,"EdSpH","Endurance Club Superior High Earner","suffix"],
-    [150000,"EdHOFE","Endurance Club Hall of Fame Earner","prefix"]
-  ].forEach(([need,code,title,position], index) => add({
-    category:"Earnings",title,code,requirement:`$${Number(need).toLocaleString()}`,
-    current:`$${Math.round(totalWinnings).toLocaleString()}`,earned:totalWinnings>=need,position,sort:300+index
-  }));
-
-  const circuitCodes = {
-    "Northern Circuit": {completion:"NCCC",excellence:"NCCE",champion:"NCCCh",sweep:"NCCS"},
-    "Desert Circuit": {completion:"DCCC",excellence:"DCCE",champion:"DCCh",sweep:"DCS"},
-    "Steppe Circuit": {completion:"SCCC",excellence:"SCCE",champion:"SCCh",sweep:"SCS"},
-    "North American Frontier Circuit": {completion:"NaCC",excellence:"NaCE",champion:"NaCh",sweep:"NaCS"},
-    "South American Circuit": {completion:"SaCC",excellence:"SaCE",champion:"SaCh",sweep:"SaCS"},
-    "Oceania Circuit": {completion:"OCCC",excellence:"OCCE",champion:"OCCh",sweep:"OCS"},
-    "African Circuit": {completion:"ACCC",excellence:"ACCE",champion:"ACCh",sweep:"ACCS"},
-    "Mediterranean Circuit": {completion:"MdCC",excellence:"MdCE",champion:"MdCCh",sweep:"MdCS"},
-    "Southeast Asia Circuit": {completion:"SeaCC",excellence:"SeaCE",champion:"SeaCCh",sweep:"SeaCS"},
-    "World Tour": {completion:"WTCC",excellence:"WTCE",champion:"WTCCh",sweep:"WTCS"}
-  };
-
-  const seasons = [...new Set(club.map(enduranceSeason).filter(Boolean))].sort((a,b)=>Number(b)-Number(a));
-  const touchedCircuits = [...new Set(club.map(r=>String(r?.endurance_circuit||"").trim()).filter(Boolean))];
-
-  touchedCircuits.filter(circuit => circuitCodes[circuit] && circuit !== "World Tour").forEach((circuit, ci) => {
-    const required = SS_ENDURANCE_TITLE_RACES.filter(r=>r.circuit===circuit).map(r=>r.key);
-    if (!required.length) return;
-    const codes = circuitCodes[circuit];
-
-    let bestCompleted=0,bestPlaced=0,bestWon=0,bestSeason="";
-    seasons.forEach(season => {
-      const recs=club.filter(r=>String(enduranceSeason(r))===String(season) && normalizeKey(r?.endurance_circuit)===normalizeKey(circuit));
-      const competed=new Set(recs.filter(r=>r?.endurance_completed!==false).map(r=>r.endurance_race_key));
-      const placed=new Set(recs.filter(r=>{const p=enduranceNumericPlacement(r); return p!==null&&p>=1&&p<=5;}).map(r=>r.endurance_race_key));
-      const won=new Set(recs.filter(r=>enduranceNumericPlacement(r)===1).map(r=>r.endurance_race_key));
-      if (competed.size>bestCompleted){bestCompleted=competed.size;bestSeason=season;}
-      bestPlaced=Math.max(bestPlaced,placed.size); bestWon=Math.max(bestWon,won.size);
-    });
-
-    const championRecord=club.find(r=>normalizeKey(r?.association_event_type)==="circuit champion" && normalizeKey(r?.endurance_circuit)===normalizeKey(circuit));
-
-    add({category:circuit,title:`${circuit} Completion`,code:codes.completion,requirement:`Complete all ${required.length} circuit races in one season`,current:`${Math.min(bestCompleted,required.length)}/${required.length} completed`,earned:seasons.some(season=>{
-      const recs=club.filter(r=>String(enduranceSeason(r))===String(season)&&normalizeKey(r?.endurance_circuit)===normalizeKey(circuit));
-      const set=new Set(recs.filter(r=>r?.endurance_completed!==false).map(r=>r.endurance_race_key)); return required.every(k=>set.has(k));}),sort:400+ci*10});
-    add({category:circuit,title:`${circuit} Excellence`,code:codes.excellence,requirement:`Place Top 5 in all ${required.length} circuit races in one season`,current:`${Math.min(bestPlaced,required.length)}/${required.length} Top 5`,earned:seasons.some(season=>{
-      const recs=club.filter(r=>String(enduranceSeason(r))===String(season)&&normalizeKey(r?.endurance_circuit)===normalizeKey(circuit));
-      const set=new Set(recs.filter(r=>{const p=enduranceNumericPlacement(r); return p!==null&&p>=1&&p<=5;}).map(r=>r.endurance_race_key)); return required.every(k=>set.has(k));}),sort:401+ci*10});
-    add({category:circuit,title:`${circuit} Sweep`,code:codes.sweep,requirement:`Win all ${required.length} circuit races in one season`,current:`${Math.min(bestWon,required.length)}/${required.length} wins`,earned:seasons.some(season=>{
-      const recs=club.filter(r=>String(enduranceSeason(r))===String(season)&&normalizeKey(r?.endurance_circuit)===normalizeKey(circuit));
-      const set=new Set(recs.filter(r=>enduranceNumericPlacement(r)===1).map(r=>r.endurance_race_key)); return required.every(k=>set.has(k));}),sort:402+ci*10});
-    add({category:circuit,title:`${circuit} Champion`,code:codes.champion,requirement:"Finish season as Circuit Champion",current:championRecord?`${championRecord.endurance_season} Champion`:"Not yet earned",earned:Boolean(championRecord),position:"prefix",sort:403+ci*10});
-  });
-
-  // World Tour paths are tracked independently.
-  if (touchedCircuits.includes("World Tour")) {
-    ["gemstone","crystal"].forEach((series, si) => {
-      const required=SS_ENDURANCE_TITLE_RACES.filter(r=>r.circuit==="World Tour"&&r.series===series).map(r=>r.key);
-      if (!required.length) return;
-      const label=series==="gemstone"?"GemStone":"Crystal";
-      const recs=club.filter(r=>normalizeKey(r?.endurance_series)===series);
-      const competed=new Set(recs.map(r=>r.endurance_race_key));
-      const placed=new Set(recs.filter(r=>{const p=enduranceNumericPlacement(r);return p!==null&&p>=1&&p<=5;}).map(r=>r.endurance_race_key));
-      const won=new Set(recs.filter(r=>enduranceNumericPlacement(r)===1).map(r=>r.endurance_race_key));
-      add({category:`World Tour - ${label}`,title:"World Tour Circuit Completion",code:"WTCC",requirement:`Complete all ${required.length} ${label} races in one season`,current:`${Math.min(competed.size,required.length)}/${required.length} completed`,earned:required.every(k=>competed.has(k)),sort:600+si*10});
-      add({category:`World Tour - ${label}`,title:"World Tour Circuit Excellence",code:"WTCE",requirement:`Top 5 in all ${required.length} ${label} races`,current:`${Math.min(placed.size,required.length)}/${required.length} Top 5`,earned:required.every(k=>placed.has(k)),sort:601+si*10});
-      add({category:`World Tour - ${label}`,title:"World Tour Circuit Sweep",code:"WTCS",requirement:`Win all ${required.length} ${label} races`,current:`${Math.min(won.size,required.length)}/${required.length} wins`,earned:required.every(k=>won.has(k)),sort:602+si*10});
-      add({category:`World Tour - ${label}`,title:series==="gemstone"?"Gem Stone Series Winner":"Crystal Tour Winner",code:series==="gemstone"?"EdGS":"EdCS",requirement:`Sweep the ${label} path`,current:`${Math.min(won.size,required.length)}/${required.length} wins`,earned:required.every(k=>won.has(k)),sort:603+si*10});
-    });
-  }
-
-  const firstPlaceRaceNames=new Set(club.filter(r=>enduranceNumericPlacement(r)===1).map(r=>normalizeKey(r?.endurance_race_name)));
-  const firstPlaceRaceKeys=new Set(club.filter(r=>enduranceNumericPlacement(r)===1).map(r=>String(r?.endurance_race_key||"").trim()));
-  const dcpecEarned=firstPlaceRaceKeys.has("desert_circuit_dubai_crown_prince_conference")||firstPlaceRaceNames.has("dubai crown prince conference")||firstPlaceRaceNames.has("dubai crown prince endurance cup");
-  if (club.some(r=>String(r?.endurance_race_key||"").includes("dubai_crown_prince")) || dcpecEarned) {
-    add({category:"Named Titles",title:"Dubai Crown Prince Endurance Cup",code:"DCPEC",requirement:"Win the Dubai Crown Prince Conference",current:dcpecEarned?"Winner":"Not yet earned",earned:dcpecEarned,sort:700});
-  }
-
-  return {rows:rows.sort((a,b)=>a.sort-b.sort),prefixes:uniqueTitleList(prefixes),suffixes:uniqueTitleList(suffixes)};
-}
-
-function highestEnduranceProgressRows(rows) {
-  const grouped = {};
-
-  (rows || []).forEach(row => {
-    const key = String(row?.category || "Other");
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(row);
-  });
-
-  const result = [];
-
-  Object.values(grouped).forEach(group => {
-    const ordered = group.slice().sort((a,b) => Number(a.sort || 0) - Number(b.sort || 0));
-    const earnedRows = ordered.filter(row => row.earned);
-
-    // Only show the highest title currently earned within this progression.
-    // If none are earned yet, show the first target in that progression.
-    const chosen = earnedRows.length
-      ? earnedRows[earnedRows.length - 1]
-      : ordered[0];
-
-    if (chosen) result.push(chosen);
-  });
-
-  return result.sort((a,b) => Number(a.sort || 0) - Number(b.sort || 0));
-}
-
-function renderEnduranceTitleProgress(records, animal) {
-  const data=getEnduranceTitleProgressData(records, animal);
-  const progressRows = highestEnduranceProgressRows(data.rows);
-  if (!progressRows.length) return `<div class="empty">No Endurance Club title progress yet.</div>`;
-  return `
-    <div class="table-wrap">
-      <table class="titles-table endurance-progress-table">
-        <thead><tr>
-          <th>Category</th><th>Title</th><th>Code</th><th>Requirement</th><th>Current</th><th>Status</th>
-        </tr></thead>
-        <tbody>
-          ${progressRows.map(row=>`
-            <tr>
-              <td>${escapeHtml(row.category)}</td>
-              <td>${escapeHtml(row.title)}</td>
-              <td>${escapeHtml(row.code)}</td>
-              <td>${escapeHtml(row.requirement)}</td>
-              <td>${escapeHtml(row.current)}</td>
-              <td><span class="status-pill ${row.earned?'earned':'progress'}">${row.earned?'Earned':'In Progress'}</span></td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>`;
-}
-
-function calculateEnduranceClubTitles(records, animal) {
-  if (normalizeKey(animal?.species) !== "horse") {
-    return { prefixes: [], suffixes: [], rows: [] };
-  }
-
-  const club = (records || []).filter(isEnduranceClubRecord);
-
-  if (!club.length) {
-    return { prefixes: [], suffixes: [], rows: [] };
-  }
-
-  const prefixes = [];
-  const suffixes = [];
-  const rows = [];
-
-  const completed = club.filter(record =>
-    record?.endurance_completed !== false &&
-    normalizeKey(record?.association_event_type) !== "prospect"
-  );
-
-  const totalDistance = completed.reduce(
-    (sum, record) => sum + Number(record?.endurance_distance_km || 0),
-    0
-  );
-
-  const totalWinnings = club.reduce(
-    (sum, record) => sum + Number(record?.endurance_winnings || 0),
-    0
-  );
-
-  /*
-    RACE-WINNING TITLES
-    Higher titles replace lower titles within each grade.
-  */
-  const winsByGrade = { I: 0, II: 0, III: 0, INV: 0 };
-
-  club.forEach(record => {
-    if (enduranceNumericPlacement(record) !== 1) return;
-    const grade = enduranceGradeKey(record);
-    if (winsByGrade[grade] !== undefined) winsByGrade[grade]++;
-  });
-
-  const gradeTitle = (grade, single, multi, grand, grandThreshold=5) => {
-    const wins = winsByGrade[grade] || 0;
-
-    if (wins >= grandThreshold) {
-      prefixes.push(grand);
-      rows.push({
-        titleName: grand,
-        titleCode: grand,
-        count: `${wins} Grade ${grade} wins`,
-        sort: 810
-      });
-    } else if (wins >= 2) {
-      suffixes.push(multi);
-      rows.push({
-        titleName: multi,
-        titleCode: multi,
-        count: `${wins} Grade ${grade} wins`,
-        sort: 810
-      });
-    } else if (wins >= 1) {
-      suffixes.push(single);
-      rows.push({
-        titleName: single,
-        titleCode: single,
-        count: `${wins} Grade ${grade} win`,
-        sort: 810
-      });
-    }
-  };
-
-  gradeTitle("III","EdSIII","MEdSIII","GChEdSIII");
-  gradeTitle("II","EdSII","MEdSII","GChEdSII");
-
-  /*
-    Grade I:
-      EdSI / MEdSI count actual Grade I wins.
-      GChEdSI may use Grade I OR Invitational wins.
-  */
-  const gradeIWins = winsByGrade.I || 0;
-  const gradeIOrInvitational = gradeIWins + (winsByGrade.INV || 0);
-
-  if (gradeIOrInvitational >= 5) {
-    prefixes.push("GChEdSI");
-    rows.push({
-      titleName: "Grand Champion Endurance Stakes I Winner",
-      titleCode: "GChEdSI",
-      count: `${gradeIOrInvitational} Grade I / Invitational wins`,
-      sort: 811
-    });
-  } else if (gradeIWins >= 2) {
-    suffixes.push("MEdSI");
-    rows.push({
-      titleName: "Multi Endurance Club Stakes I Winner",
-      titleCode: "MEdSI",
-      count: `${gradeIWins} Grade I wins`,
-      sort: 811
-    });
-  } else if (gradeIWins >= 1) {
-    suffixes.push("EdSI");
-    rows.push({
-      titleName: "Endurance Club Stakes I",
-      titleCode: "EdSI",
-      count: `${gradeIWins} Grade I win`,
-      sort: 811
-    });
-  }
-
-  /*
-    DISTANCE TITLES | Endurance Club kilometres only.
-  */
-  if (totalDistance >= 100000) {
-    prefixes.push("EdDL");
-    rows.push({titleName:"Endurance Club Distance Legend",titleCode:"EdDL",count:`${Math.round(totalDistance).toLocaleString()} km`,sort:820});
-  } else if (totalDistance >= 50000) {
-    prefixes.push("EdDHoF");
-    rows.push({titleName:"Endurance Club Distance Hall of Fame",titleCode:"EdDHoF",count:`${Math.round(totalDistance).toLocaleString()} km`,sort:820});
-  } else if (totalDistance >= 30000) {
-    suffixes.push("EdDGCh");
-    rows.push({titleName:"Endurance Club Distance Grand Champion",titleCode:"EdDGCh",count:`${Math.round(totalDistance).toLocaleString()} km`,sort:820});
-  } else if (totalDistance >= 20000) {
-    suffixes.push("EdDCh");
-    rows.push({titleName:"Endurance Club Distance Champion",titleCode:"EdDCh",count:`${Math.round(totalDistance).toLocaleString()} km`,sort:820});
-  }
-
-  /*
-    EARNINGS TITLES | actual money stored on Endurance Club records only.
-  */
-  const moneyLabel = "$" + Math.round(totalWinnings).toLocaleString();
-
-  if (totalWinnings >= 150000) {
-    prefixes.push("EdHOFE");
-    rows.push({titleName:"Endurance Club Hall of Fame Earner",titleCode:"EdHOFE",count:moneyLabel,sort:821});
-  } else if (totalWinnings >= 100000) {
-    suffixes.push("EdSpH");
-    rows.push({titleName:"Endurance Club Superior High Earner",titleCode:"EdSpH",count:moneyLabel,sort:821});
-  } else if (totalWinnings >= 50000) {
-    suffixes.push("EdHE");
-    rows.push({titleName:"Endurance Club High Earner",titleCode:"EdHE",count:moneyLabel,sort:821});
-  }
-
-  /*
-    SAME-SEASON SERIES + CIRCUIT TITLES
-  */
-  const bySeason = {};
-
-  club.forEach(record => {
-    const season = enduranceSeason(record);
-    if (!season) return;
-
-    if (!bySeason[season]) bySeason[season] = [];
-    bySeason[season].push(record);
-  });
-
-  const circuitCodes = {
-    "Northern Circuit": {completion:"NCCC",excellence:"NCCE",champion:"NCCCh",sweep:"NCCS"},
-    "Desert Circuit": {completion:"DCCC",excellence:"DCCE",champion:"DCCh",sweep:"DCS"},
-    "Steppe Circuit": {completion:"SCCC",excellence:"SCCE",champion:"SCCh",sweep:"SCS"},
-    "North American Frontier Circuit": {completion:"NaCC",excellence:"NaCE",champion:"NaCh",sweep:"NaCS"},
-    "South American Circuit": {completion:"SaCC",excellence:"SaCE",champion:"SaCh",sweep:"SaCS"},
-    "Oceania Circuit": {completion:"OCCC",excellence:"OCCE",champion:"OCCh",sweep:"OCS"},
-    "African Circuit": {completion:"ACCC",excellence:"ACCE",champion:"ACCh",sweep:"ACCS"},
-    "Mediterranean Circuit": {completion:"MdCC",excellence:"MdCE",champion:"MdCCh",sweep:"MdCS"},
-    "Southeast Asia Circuit": {completion:"SeaCC",excellence:"SeaCE",champion:"SeaCCh",sweep:"SeaCS"},
-    "World Tour": {completion:"WTCC",excellence:"WTCE",champion:"WTCCh",sweep:"WTCS"}
-  };
-
-  Object.entries(bySeason).forEach(([season, seasonRecords]) => {
-    const seasonNumber = Number(season);
-
-    /*
-      Regional circuits: exactly the seven catalog races in that circuit.
-    */
-    Object.keys(circuitCodes)
-      .filter(circuit => circuit !== "World Tour")
-      .forEach(circuit => {
-        const required = SS_ENDURANCE_TITLE_RACES
-          .filter(race => race.circuit === circuit)
-          .map(race => race.key);
-
-        if (!required.length) return;
-
-        const circuitRecords = seasonRecords.filter(record =>
-          normalizeKey(record?.endurance_circuit) === normalizeKey(circuit)
-        );
-
-        const competed = new Set(
-          circuitRecords
-            .filter(record => record?.endurance_completed !== false)
-            .map(record => record.endurance_race_key)
-        );
-
-        const placed = new Set(
-          circuitRecords
-            .filter(record => {
-              const place = enduranceNumericPlacement(record);
-              return place !== null && place >= 1 && place <= 5;
-            })
-            .map(record => record.endurance_race_key)
-        );
-
-        const won = new Set(
-          circuitRecords
-            .filter(record => enduranceNumericPlacement(record) === 1)
-            .map(record => record.endurance_race_key)
-        );
-
-        const codes = circuitCodes[circuit];
-
-        if (required.every(key => competed.has(key))) {
-          suffixes.push(codes.completion);
-          rows.push({titleName:`${circuit} Completion`,titleCode:codes.completion,count:String(seasonNumber),sort:830});
-        }
-
-        if (required.every(key => placed.has(key))) {
-          suffixes.push(codes.excellence);
-          rows.push({titleName:`${circuit} Excellence`,titleCode:codes.excellence,count:String(seasonNumber),sort:831});
-        }
-
-        if (required.every(key => won.has(key))) {
-          suffixes.push(codes.sweep);
-          rows.push({titleName:`${circuit} Sweep`,titleCode:codes.sweep,count:String(seasonNumber),sort:832});
-        }
-      });
-
-    /*
-      WORLD TOUR:
-      GemStone OR Crystal may independently satisfy Completion / Excellence / Sweep.
-    */
-    const worldCodes = circuitCodes["World Tour"];
-
-    ["gemstone","crystal"].forEach(series => {
-      const required = SS_ENDURANCE_TITLE_RACES
-        .filter(race => race.circuit === "World Tour" && race.series === series)
-        .map(race => race.key);
-
-      if (!required.length) return;
-
-      const seriesRecords = seasonRecords.filter(record =>
-        normalizeKey(record?.endurance_series) === series
-      );
-
-      const competed = new Set(seriesRecords.map(record => record.endurance_race_key));
-      const placed = new Set(
-        seriesRecords
-          .filter(record => {
-            const place = enduranceNumericPlacement(record);
-            return place !== null && place >= 1 && place <= 5;
-          })
-          .map(record => record.endurance_race_key)
-      );
-      const won = new Set(
-        seriesRecords
-          .filter(record => enduranceNumericPlacement(record) === 1)
-          .map(record => record.endurance_race_key)
-      );
-
-      if (required.every(key => competed.has(key))) {
-        suffixes.push(worldCodes.completion);
-        rows.push({
-          titleName:"World Tour Circuit Completion",
-          titleCode:worldCodes.completion,
-          count:`${seasonNumber} | ${series === "gemstone" ? "GemStone" : "Crystal"} path`,
-          sort:834
-        });
-      }
-
-      if (required.every(key => placed.has(key))) {
-        suffixes.push(worldCodes.excellence);
-        rows.push({
-          titleName:"World Tour Circuit Excellence",
-          titleCode:worldCodes.excellence,
-          count:`${seasonNumber} | ${series === "gemstone" ? "GemStone" : "Crystal"} path`,
-          sort:835
-        });
-      }
-
-      if (required.every(key => won.has(key))) {
-        suffixes.push(worldCodes.sweep);
-        rows.push({
-          titleName:"World Tour Circuit Sweep",
-          titleCode:worldCodes.sweep,
-          count:`${seasonNumber} | ${series === "gemstone" ? "GemStone" : "Crystal"} path`,
-          sort:836
-        });
-
-        if (series === "gemstone") {
-          suffixes.push("EdGS");
-          rows.push({titleName:"Gem Stone Series Winner",titleCode:"EdGS",count:String(seasonNumber),sort:837});
-        }
-
-        if (series === "crystal") {
-          suffixes.push("EdCS");
-          rows.push({titleName:"Crystal Tour Winner",titleCode:"EdCS",count:String(seasonNumber),sort:837});
-        }
-      }
-    });
-  });
-
-  /*
-    Circuit Champion synthetic rows are appended by loadRecords() from
-    the endurance_circuit_champions view.
-  */
-  club
-    .filter(record => normalizeKey(record?.association_event_type) === "circuit champion")
-    .forEach(record => {
-      const circuit = record.endurance_circuit;
-      const codeMap = circuitCodes[circuit];
-      if (!codeMap) return;
-
-      prefixes.push(codeMap.champion);
-      rows.push({
-        titleName: `${circuit} Champion`,
-        titleCode: codeMap.champion,
-        count: `${record.endurance_season} | ${Number(record.endurance_circuit_points ?? record.points ?? 0).toLocaleString()} circuit points`,
-        sort: 833
-      });
-    });
-
-  /*
-    Explicit named-series titles supported now/future.
-  */
-  const firstPlaceRaceNames = new Set(
-    club
-      .filter(record => enduranceNumericPlacement(record) === 1)
-      .map(record => normalizeKey(record?.endurance_race_name))
-  );
-
-  const firstPlaceRaceKeys = new Set(
-    club
-      .filter(record => enduranceNumericPlacement(record) === 1)
-      .map(record => String(record?.endurance_race_key || "").trim())
-  );
-
-  if (
-    firstPlaceRaceKeys.has("desert_circuit_dubai_crown_prince_conference") ||
-    firstPlaceRaceNames.has("dubai crown prince conference") ||
-    firstPlaceRaceNames.has("dubai crown prince endurance cup")
-  ) {
-    suffixes.push("DCPEC");
-    rows.push({titleName:"Dubai Crown Prince Endurance Cup",titleCode:"DCPEC",count:"Winner",sort:840});
-  }
-
-  const seriesSweepRules = [
-    {series:"world_holiday_challenge",required:4,code:"EdWHC",name:"Endurance Club World Holiday Challenge Winner"},
-    {series:"winter_constellation_challenge",required:4,code:"EdWCC",name:"Endurance Club Winter Constellation Challenge"},
-    {series:"solar_challenge",required:4,code:"EdSCC",name:"Endurance Club Solar Challenge"}
-  ];
-
-  seriesSweepRules.forEach(rule => {
-    const winsBySeason = {};
-
-    club.forEach(record => {
-      if (
-        normalizeKey(record?.endurance_series) !== rule.series ||
-        enduranceNumericPlacement(record) !== 1
-      ) return;
-
-      const season = enduranceSeason(record);
-      if (!season) return;
-
-      if (!winsBySeason[season]) winsBySeason[season] = new Set();
-      winsBySeason[season].add(record.endurance_race_key);
-    });
-
-    if (Object.values(winsBySeason).some(set => set.size >= rule.required)) {
-      suffixes.push(rule.code);
-      rows.push({titleName:rule.name,titleCode:rule.code,count:"Same-season series winner",sort:841});
-    }
-  });
-
-  /*
-    Always expose cumulative Endurance Club totals in the title/progress list,
-    even before a threshold is reached.
-  */
-  rows.push({
-    titleName:"Endurance Club Distance",
-    titleCode:"",
-    count:`${Math.round(totalDistance).toLocaleString()} km completed`,
-    sort:899
-  });
-
-  rows.push({
-    titleName:"Endurance Club Winnings",
-    titleCode:"",
-    count:"$" + Math.round(totalWinnings).toLocaleString(),
-    sort:900
-  });
-
-  const auditedProgress = getEnduranceTitleProgressData(records, animal);
-  prefixes.push(...auditedProgress.prefixes);
-  suffixes.push(...auditedProgress.suffixes);
-
-  return {
-    prefixes: uniqueTitleList(prefixes),
-    suffixes: uniqueTitleList(suffixes),
-    rows
-  };
-}
-
-function calculateTitleData(records, animal, titleRules, activityRules, activityTypes, totalRules, herdingRules) {
-  const prefixBestInShowTitles = [];
-  const prefixSpecialtyBestInShowTitles = [];
-  const prefixBestInFieldTitles = [];
-  const prefixConformationTitles = [];
-  const prefixActivityChampionshipTitles = [];
-  const prefixManualTitles = [];
-
-  const suffixActivityTitles = [];
-  const suffixManualTitles = [];
-  const suffixVersatilityTitles = [];
-  const suffixTotalAwardTitles = [];
-  const suffixBreedingAwardTitles = [];
-  const suffixCgcTitles = [];
-  const suffixTherapyTemperamentTitles = [];
-  const suffixHerdingTitles = [];
-
-  const awardTitleRows = [];
-
-  const conformationRecords = records.filter(r => canonicalShowType(r.show_type) === "conformation");
-  const activityRecords = records.filter(r => canonicalShowType(r.show_type) === "activity" && !isManualScoreRecord(r) && !isBestInFieldActivityRecord(r));
-
-  const conformationPoints = conformationRecords.reduce((sum, r) => sum + pointsValue(r), 0);
-  const confRules = titleRules.filter(r => normalizeKey(r.applies_to) === "conformation");
-  const confTitle = highestTitle(conformationPoints, confRules);
-
-  const earnedTitleCodes = [];
-
-  if (confTitle) {
-    prefixConformationTitles.push(confTitle.title_code);
-    earnedTitleCodes.push(confTitle.title_code);
-  }
-
-  const allBreedBIS = countUniqueAwardWins(
-    conformationRecords,
-    isAllBreedBestInShow,
-    "bis"
-  );
-
-  const specialtyBIS = countUniqueAwardWins(
-    conformationRecords,
-    isSpecialtyBestInShow,
-    "biss"
-  );
-
-  /*
-    Unlike BIS/BISS, a single show can legitimately run multiple Best in Field
-    classes and the same animal can win more than one of them. Count each
-    qualifying BIF result row rather than de-duplicating at show/upload level.
-  */
-  const bestInFieldCount = records.filter(isBestInFieldWin).length;
-
-  /*
-    BIS / BISS / BIF are earned from the actual recorded win.
-    They do NOT require the animal to have reached CH. first.
-  */
-  if (allBreedBIS >= 2) {
-    prefixBestInShowTitles.push("MBIS");
-    awardTitleRows.push({
-      titleName: "Multiple Best in Show Winner",
-      titleCode: "MBIS",
-      count: allBreedBIS,
-      sort: 10
-    });
-  } else if (allBreedBIS >= 1) {
-    prefixBestInShowTitles.push("BIS");
-    awardTitleRows.push({
-      titleName: "Best in Show Winner",
-      titleCode: "BIS",
-      count: allBreedBIS,
-      sort: 11
-    });
-  }
-
-  if (specialtyBIS >= 2) {
-    prefixSpecialtyBestInShowTitles.push("MBISS");
-    awardTitleRows.push({
-      titleName: "Multiple Best in Specialty Show Winner",
-      titleCode: "MBISS",
-      count: specialtyBIS,
-      sort: 20
-    });
-  } else if (specialtyBIS >= 1) {
-    prefixSpecialtyBestInShowTitles.push("BISS");
-    awardTitleRows.push({
-      titleName: "Best in Specialty Show Winner",
-      titleCode: "BISS",
-      count: specialtyBIS,
-      sort: 21
-    });
-  }
-
-  /* Kept after BIS/BISS and before regular conformation titles so Field awards still display cleanly. */
-  if (bestInFieldCount >= 2) {
-    prefixBestInFieldTitles.push("MBIF");
-    awardTitleRows.push({
-      titleName: "Multiple Best in Field Winner",
-      titleCode: "MBIF",
-      count: bestInFieldCount,
-      sort: 30
-    });
-  } else if (bestInFieldCount >= 1) {
-    prefixBestInFieldTitles.push("BIF");
-    awardTitleRows.push({
-      titleName: "Best in Field Winner",
-      titleCode: "BIF",
-      count: bestInFieldCount,
-      sort: 31
-    });
-  }
-
-  const activityTotals = calculateActivityTotals(activityRecords, activityTypes);
-
-  Object.keys(activityTotals).forEach(key => {
-    const total = activityTotals[key];
-    const rules = getActivityRulesForTotal(total, activityRules);
-    const title = highestTitle(total.points, rules);
-    const displayedTitle = title ? displayActivityTitle(title, total.points) : null;
-
-    if (title) {
-      earnedTitleCodes.push(title.title_code);
-      earnedTitleCodes.push(displayedTitle);
-
-      /*
-        TDCh. (Trick Dog Champion) is always a PREFIX on Show Standard.
-        Keep the database title_position for every other activity title, but
-        explicitly protect TDCh here so an old/mistyped rule cannot render it
-        after the registered name.
-      */
-      const activityTitleCode = titleCodeKey(title.title_code);
-      const activityTitlePosition =
-        activityTitleCode === "tdch"
-          ? "prefix"
-          : normalizeKey(title.title_position || "suffix");
-
-      if (activityTitlePosition === "prefix") {
-        prefixActivityChampionshipTitles.push({
-          code: displayedTitle,
-          earnedDate: activityTitleEarnedDate(total.activity_key || total.display_name, activityRecords, activityTypes),
-          activity: total.display_name || total.activity_key || ""
-        });
-      } else {
-        suffixActivityTitles.push({
-          code: displayedTitle,
-          earnedDate: activityTitleEarnedDate(total.activity_key || total.display_name, activityRecords, activityTypes),
-          activity: total.display_name || total.activity_key || ""
-        });
-      }
-    }
-  });
-
-  splitTitleCodes(animal?.manual_prefix_titles).forEach(code => {
-    prefixManualTitles.push(code);
-    earnedTitleCodes.push(code);
-  });
-
-  splitTitleCodes(animal?.manual_suffix_titles).forEach(code => {
-    const group = manualSuffixDisplayGroup(code);
-
-    if (group === "cgc") {
-      suffixCgcTitles.push(code);
-    } else if (group === "therapyTemperament") {
-      suffixTherapyTemperamentTitles.push(code);
-    } else {
-      suffixManualTitles.push(code);
-    }
-
-    earnedTitleCodes.push(code);
-  });
-
-  const herdingTitles = calculateHerdingTitles(records, animal, herdingRules);
-  prefixManualTitles.push(...herdingTitles.prefixes);
-  suffixHerdingTitles.push(...herdingTitles.suffixes);
-  awardTitleRows.push(...herdingTitles.rows);
-  herdingTitles.suffixes.forEach(code => earnedTitleCodes.push(code));
-
-  const icelandicTitles = calculateIcelandicAssociationTitles(records, animal);
-  prefixManualTitles.push(...icelandicTitles.prefixes);
-  awardTitleRows.push(...icelandicTitles.rows);
-  icelandicTitles.prefixes.forEach(code => earnedTitleCodes.push(code));
-
-  const enduranceTitles = calculateEnduranceClubTitles(records, animal);
-  prefixManualTitles.push(...enduranceTitles.prefixes);
-  suffixManualTitles.push(...enduranceTitles.suffixes);
-  awardTitleRows.push(...enduranceTitles.rows);
-  enduranceTitles.prefixes.forEach(code => earnedTitleCodes.push(code));
-  enduranceTitles.suffixes.forEach(code => earnedTitleCodes.push(code));
-
-  const huntingTitles = calculateHuntingClubTitles(records, animal);
-  suffixManualTitles.push(...huntingTitles.suffixes);
-  awardTitleRows.push(...huntingTitles.rows);
-  huntingTitles.suffixes.forEach(code => earnedTitleCodes.push(code));
-
-  const testingTitles = calculateTestingTitles(records, animal);
-  testingTitles.suffixes.forEach(code => {
-    if (/^CGC/.test(code)) suffixCgcTitles.push(code);
-    else suffixTherapyTemperamentTitles.push(code);
-    earnedTitleCodes.push(code);
-  });
-  awardTitleRows.push(...testingTitles.rows);
-
-  const breedingAwardTitles = calculateBreedingAwardTitles(animal);
-  suffixBreedingAwardTitles.push(...breedingAwardTitles.suffixes);
-  awardTitleRows.push(...breedingAwardTitles.rows);
-  breedingAwardTitles.suffixes.forEach(code => earnedTitleCodes.push(code));
-
-  const versatilityTitle = calculateVersatilityTitle(animal, earnedTitleCodes);
-
-  if (versatilityTitle) {
-    suffixVersatilityTitles.push(versatilityTitle.code);
-
-    awardTitleRows.push({
-      titleName: versatilityTitle.name,
-      titleCode: versatilityTitle.code,
-      count: "Earned",
-      sort: 300
-    });
-  }
-
-  const eligibleTotalActivities = getTotalAwardEligibleKeys(animal, totalRules);
-
-  const totalAwardShows = {};
-
-  records.forEach(r => {
-    const showKey = getTotalAwardShowKey(r.show_name);
-
-    if (!totalAwardShows[showKey]) {
-      totalAwardShows[showKey] = { hasConformation: false, hasActivity: false };
-    }
-
-    if (canonicalShowType(r.show_type) === "conformation" && isBOBOrAbove(r.placement)) {
-      totalAwardShows[showKey].hasConformation = true;
-    }
-
-    if (canonicalShowType(r.show_type) === "activity" && isActivityPlacing(r.placement)) {
-      const activity = resolveActivityForRecord(r, activityTypes);
-
-      if (isTotalAwardEligibleActivity(activity, eligibleTotalActivities)) {
-        totalAwardShows[showKey].hasActivity = true;
-      }
-    }
-  });
-
-  const totalAwardCount = Object.values(totalAwardShows)
-    .filter(s => s.hasConformation && s.hasActivity)
-    .length;
-
-  if (totalAwardCount > 0) {
-    const base = speciesCode(animal?.species);
-    const title = totalAwardCount === 1 ? base : base + totalAwardCount;
-
-    suffixTotalAwardTitles.push(title);
-
-    awardTitleRows.push({
-      titleName: "Total Award " + (animal?.species || ""),
-      titleCode: title,
-      count: totalAwardCount,
-      sort: 400
-    });
-  }
-
-  const orderedActivityPrefixes = prefixActivityChampionshipTitles
-    .slice()
-    .sort((a, b) => a.earnedDate.localeCompare(b.earnedDate) || a.activity.localeCompare(b.activity))
-    .map(t => t.code);
-
-  const orderedActivitySuffixes = suffixActivityTitles
-    .slice()
-    .sort((a, b) => a.earnedDate.localeCompare(b.earnedDate) || a.activity.localeCompare(b.activity))
-    .map(t => t.code);
-
-  const prefixTitles = [
-    ...prefixBestInShowTitles,
-    ...prefixSpecialtyBestInShowTitles,
-    ...prefixBestInFieldTitles,
-    ...prefixConformationTitles,
-    ...orderedActivityPrefixes,
-    ...prefixManualTitles
-  ];
-
-  const suffixTitles = [
-    ...orderedActivitySuffixes,
-    ...suffixHerdingTitles,
-    ...suffixManualTitles,
-    ...suffixBreedingAwardTitles,
-    ...suffixVersatilityTitles,
-    ...suffixTotalAwardTitles,
-    ...highestManualTitleBySort(suffixCgcTitles),
-    ...suffixTherapyTemperamentTitles.sort((a, b) => manualTitleSort(a) - manualTitleSort(b))
-  ];
-
-  return {
-    prefixTitles: uniqueTitleList(prefixTitles),
-    suffixTitles: uniqueTitleList(suffixTitles),
-    awardTitleRows
-  };
-}
- 
-
-function cleanDisplayText(value) {
-  return String(value ?? "")
-    // Remove broken em/en dash sequences and real long dashes from DISPLAY text.
-    .replace(/â€”|â€“|â€•|â€‘|â€’|â€|—|–/g, "")
-    // Remove broken bullet / non-breaking-space garbage.
-    .replace(/â€¢|Â/g, " ")
-    // Repair a few common UTF-8 mojibake characters that may exist in old records.
-    .replace(/â€™|â€˜/g, "'")
-    .replace(/â€œ|â€/g, '"')
-    .replace(/Ã¶/g, "ö")
-    .replace(/Ã¡/g, "á")
-    .replace(/Ã©/g, "é")
-    .replace(/Ãí/g, "í")
-    .replace(/Ã³/g, "ó")
-    .replace(/Ãº/g, "ú")
-    .replace(/Ã±/g, "ñ")
-    // Clean up spacing left behind after garbage removal.
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
 function escapeHtml(value) {
-  return cleanDisplayText(value)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
+async function loadChampionshipShows() {
+  const supabase = getSupabase();
+  const seriesName = cleanLine($('championshipSeries').value);
+  const list = $('championshipShowList');
+  championshipPreviewCache = null;
+  $('championshipPreview').className = 'hidden';
+  $('championshipPreview').innerHTML = '';
 
-function buildRegisteredName(animal, titleData) {
-  return [
-    ...(titleData?.prefixTitles || []),
-    animal?.name || "Unnamed",
-    ...(titleData?.suffixTitles || [])
-  ].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
-}
+  if (!supabase || !seriesName) {
+    championshipShowsCache = [];
+    list.innerHTML = '<small>Select a series to load its shows.</small>';
+    return;
+  }
 
-function getPointBasedTitleRows(records, titleRules, activityRules, activityTypes) {
-  const rows = [];
-  const conformationRecords = records.filter(r => canonicalShowType(r.show_type) === "conformation");
-  const conformationPoints = conformationRecords.reduce((sum, r) => sum + pointsValue(r), 0);
-  const confRules = (titleRules || [])
-    .filter(r => normalizeKey(r.applies_to) === "conformation")
-    .slice().sort((a,b) => Number(a.points_required || 0) - Number(b.points_required || 0));
+  list.innerHTML = '<small>Loading shows...</small>';
+  let query = supabase
+    .from('show_uploads')
+    .select('id, show_name, series_name, series_round, show_type, show_scope, raw_text, created_at');
 
-  const confTitle = highestTitle(conformationPoints, confRules);
-  const confNext = confRules.find(r => Number(r.points_required || 0) > conformationPoints);
+  if (seriesName !== '__ALL_SAVED__') {
+    query = query.eq('series_name', seriesName);
+  }
 
-  rows.push({
-    activity: "Conformation",
-    title: confTitle ? `${confTitle.title_code} ${confTitle.title_name || ""}`.trim() : "No title yet",
-    required: confTitle ? Number(confTitle.points_required || 0) : Number(confNext?.points_required || 0),
-    earned: conformationPoints,
-    status: confTitle ? "Earned" : "In Progress",
-    maxed: hasMaxedBaseTitle(conformationPoints, confRules),
-    sort: 0
-  });
+  const { data, error } = await query.order('created_at', { ascending: false });
 
-  const activityRecords = records.filter(r =>
-    canonicalShowType(r.show_type) === "activity" &&
-    !isManualScoreRecord(r) &&
-    !isBestInFieldActivityRecord(r)
+  if (error) {
+    list.innerHTML = '<small>Could not load shows.</small>';
+    showMessage('error', '<strong>Show load failed:</strong> ' + error.message);
+    return;
+  }
+
+  const wantedKind = currentShowKind();
+  championshipShowsCache = (data || []).filter(show =>
+    String(show.show_scope || '').toLowerCase() !== 'championship' &&
+    String(show.show_type || '').toLowerCase() === wantedKind
   );
-  const activityTotals = calculateActivityTotals(activityRecords, activityTypes);
-
-  Object.values(activityTotals).forEach(total => {
-    const herdingText = normalizeKey(`${total.activity_key || ""} ${total.display_name || ""}`);
-    if (
-      herdingText.includes("herding stakes") ||
-      herdingText.includes("herding instinct") ||
-      herdingText === "herding"
-    ) return;
-
-    const rules = getActivityRulesForTotal(total, activityRules)
-      .slice().sort((a,b) => Number(a.points_required || 0) - Number(b.points_required || 0));
-    const title = highestTitle(total.points, rules);
-    const next = rules.find(r => Number(r.points_required || 0) > Number(total.points || 0));
-    const displayedTitle = title ? displayActivityTitle(title, total.points) : null;
-
-    rows.push({
-      activity: cleanActivityDisplayName(total.display_name || total.activity_key),
-      title: displayedTitle ? `${displayedTitle} ${title.title_name || ""}`.trim() : "No title yet",
-      required: title ? Number(title.points_required || 0) : Number(next?.points_required || 0),
-      earned: Number(total.points || 0),
-      status: title ? "Earned" : "In Progress",
-      maxed: hasMaxedBaseTitle(total.points, rules),
-      sort: 1
-    });
-  });
-
-  return rows.sort((a,b) => a.sort - b.sort || String(a.activity).localeCompare(String(b.activity)));
-}
-
-function isBestInGroupPlacement(record) {
-  const p = normalizeKey(record?.placement);
-  if (p.includes("reserve")) return false;
-  return p === "big" || p === "best in group" || p.startsWith("best in group ");
-}
-
-function isBestOfBreedPlacement(record) {
-  const p = normalizeKey(record?.placement);
-  if (p.includes("reserve")) return false;
-  return p === "bob" || p === "best of breed" || p.startsWith("best of breed ");
-}
-
-function buildHighlights(records) {
-  const totalPoints = records.reduce((sum,r) => sum + pointsValue(r), 0);
-  const bis = countUniqueAwardWins(records, isAllBreedBestInShow, "bis");
-  const biss = countUniqueAwardWins(records, isSpecialtyBestInShow, "biss");
-  const bif = countUniqueAwardWins(records, isBestInFieldWin, "bif");
-  const big = countUniqueAwardWins(records, isBestInGroupPlacement, "big");
-  const bob = countUniqueAwardWins(records, isBestOfBreedPlacement, "bob");
-
-  const items = [
-    ["Best in Show Wins", bis],
-    ["Best in Specialty Show Wins", biss],
-    ["Best in Field Wins", bif],
-    ["Best in Group Wins", big],
-    ["Best of Breed Wins", bob],
-    ["Total Points (All Time)", totalPoints.toLocaleString()],
-    ["Total Records", records.length.toLocaleString()]
-  ];
-
-  return `
-    <section class="panel highlights-panel">
-      <h3 class="panel-title">Highlights</h3>
-      <div class="highlight-list">
-        ${items.map(([label,value]) => `
-          <div class="highlight-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
-        `).join("")}
-      </div>
-    </section>
-  `;
-}
-
-function renderPointBasedTitles(rows) {
-  if (!rows.length) return `<div class="empty">No point-based title data yet.</div>`;
-  return `
-    <section class="panel">
-      <h3 class="panel-title">Point-Based Titles</h3>
-      <div class="table-wrap">
-        <table class="titles-table">
-          <thead><tr>
-            <th>Activity</th><th>Title</th><th>Required Points</th><th>Earned Points</th><th>Status</th>
-          </tr></thead>
-          <tbody>
-            ${rows.map(row => `
-              <tr>
-                <td>${escapeHtml(row.activity)}</td>
-                <td class="${row.maxed ? "maxed-title-cell" : ""}">${escapeHtml(row.title)}${row.maxed ? ` <span class="max-title-medal" title="Maximum base title reached" aria-label="Maximum base title reached">🏅</span>` : ""}</td>
-                <td>${row.required ? Number(row.required).toLocaleString() : ""}</td>
-                <td>${Number(row.earned || 0).toLocaleString()}</td>
-                <td><span class="status-pill ${row.status === "Earned" ? "earned" : "progress"}">${escapeHtml(row.status)}</span></td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  `;
-}
-
-function versatilityCategoryNames(species) {
-  const s = normalizeKey(species);
-  if (s === "dog") return {
-    1:"Obedience & Rally", 2:"Conformation, Trick & Testing", 3:"Hunting Sports",
-    4:"Protection & Work Sports", 5:"Performance Sports", 6:"Strength & Skill Sports",
-    7:"Tracking & Search and Rescue"
-  };
-  if (s === "cat") return {
-    1:"Conformation & Trick", 2:"Agility, Obedience & Rally",
-    3:"Fishing, Retrieving & Scent", 4:"Stunt, Vaulting, Treibball & High Jump"
-  };
-  if (s === "horse") return {
-    1:"Conformation, Trick & Testing", 2:"Dressage Sports", 3:"Driving Sports",
-    4:"Gaited Sports", 5:"Racing & Endurance", 6:"English Sports",
-    7:"Western Sports", 8:"Cow Horse Sports"
-  };
-  return {};
-}
-
-function renderVersatilityPanel(animal, titleData) {
-  const earnedCodes = [...(titleData?.prefixTitles || []), ...(titleData?.suffixTitles || [])];
-  const current = calculateVersatilityTitle(animal, earnedCodes);
-  const levels = getBestVersatilityByCategory(animal, earnedCodes);
-  const names = versatilityCategoryNames(animal?.species);
-  const categories = Object.keys(names).map(Number).sort((a,b) => a-b);
-  const levelLetter = n => ["","A","B","C","D","E"][Number(n) || 0] || "";
-
-  return `
-    <section class="panel">
-      <div class="versatility-heading">
-        <div>
-          <h3 class="panel-title">Versatility</h3>
-          <p class="panel-subtitle">Highest qualifying title in each category is used. Higher levels substitute downward.</p>
-        </div>
-        <div class="versatility-current">
-          <span>Current Versatility Title</span>
-          <strong>${current ? `${escapeHtml(current.code)} | ${escapeHtml(current.name)}` : "Not yet earned"}</strong>
-        </div>
-      </div>
-
-      <div class="versatility-counts">
-        ${[1,2,3,4,5].map(level => `
-          <div class="mini-stat">
-            <span>Level ${["","A","B","C","D","E"][level]}+</span>
-            <strong>${countVersatilityCategoriesAtLeast(levels, level)}</strong>
-          </div>
-        `).join("")}
-      </div>
-
-      <div class="table-wrap">
-        <table class="titles-table">
-          <thead><tr><th>Category</th><th>Area</th><th>Highest Level</th></tr></thead>
-          <tbody>
-            ${categories.map(category => `
-              <tr>
-                <td>Category ${category}</td>
-                <td>${escapeHtml(names[category])}</td>
-                <td><strong>${levelLetter(levels[category])}</strong></td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  `;
-}
-
-
-function isTestingCertificateRecord(record) {
-  if (canonicalShowType(record?.show_type) !== "activity") return false;
-
-  const activityKey = normalizeKey(record?.activity_key);
-  const classText = normalizeKey(record?.class);
-  const labelText = normalizeKey(record?.score_label);
-  const showText = normalizeKey(record?.show_name);
-  const combined = `${activityKey} ${classText} ${labelText} ${showText}`;
-
-  return (
-    ["cgc","cgcb","cgcs","cgcg","cgca","cgcu"].includes(activityKey) ||
-
-    // Catch every Temperament variation, not only the exact
-    // "Temperament Test" wording used by newer records.
-    combined.includes("temperament") ||
-
-    // Catch Therapy Animal / Therapy Test / Therapy Dog-Cat-Horse
-    // and older records that simply stored "Therapy".
-    combined.includes("therapy") ||
-
-    combined.includes("canine good citizen") ||
-    /\bcgc\b/.test(combined)
-  );
-}
-
-function testingCertificateLabel(record) {
-  const key = normalizeKey(record?.activity_key);
-  const text = normalizeKey(`${record?.class || ""} ${record?.score_label || ""} ${record?.show_name || ""}`);
-  const combined = `${key} ${text}`.trim();
-
-  // Match all historical/current Temperament wording.
-  if (combined.includes("temperament")) {
-    return "Temperament Testing";
+  if (!championshipShowsCache.length) {
+    list.innerHTML = '<small>No eligible source shows were found in this series.</small>';
+    return;
   }
 
-  // Match Therapy Animal, Therapy Test, Therapy Dog/Cat/Horse,
-  // and older records that only stored "Therapy".
-  if (combined.includes("therapy")) {
-    return "Therapy Animal";
-  }
-
-  if (
-    ["cgc","cgcb","cgcs","cgcg","cgca","cgcu"].includes(key) ||
-    combined.includes("canine good citizen") ||
-    /\bcgc\b/.test(combined)
-  ) {
-    return "Canine Good Citizen";
-  }
-
-  return "Testing & Certificates";
+  list.innerHTML = championshipShowsCache.map(show =>
+    '<label class="ss-source-show">' +
+      '<input type="checkbox" class="ss-championship-show" value="' + escapeHtml(show.id) + '" checked>' +
+      '<span>' + escapeHtml(formatSeriesShowLabel(show)) + '</span>' +
+    '</label>'
+  ).join('');
 }
+async function loadRecordsForShowIds(supabase, showIds, showKind) {
+  const all = [];
+  const chunkSize = 100;
+  const kind = showKind || 'conformation';
 
-function renderTestingCertificatesPanel(records, animal) {
-  const testingRecords = (records || []).filter(isTestingCertificateRecord);
-  if (!testingRecords.length) return "";
+  for (let i = 0; i < showIds.length; i += chunkSize) {
+    const chunk = showIds.slice(i, i + chunkSize);
 
-  const titleData = calculateTestingTitles(records, animal);
-  const grouped = ["Temperament Testing", "Therapy Animal", "Canine Good Citizen"]
-    .map(label => ({ label, records: testingRecords.filter(r => testingCertificateLabel(r) === label) }))
-    .filter(group => group.records.length);
+    let query = supabase
+      .from('show_records')
+      .select('upload_id, animal_id, placement, class, activity_key, score, max_score, passed, score_label')
+      .in('upload_id', chunk)
+      .eq('show_type', kind);
 
-  return `
-    <section class="panel">
-      <h3 class="panel-title">Testing & Certificates</h3>
-      ${titleData.rows?.length ? `
-        <div class="testing-title-grid">
-          ${titleData.rows.map(row => `
-            <div class="testing-title-card">
-              <span>${escapeHtml(row.titleName || "")}</span>
-              <strong>${escapeHtml(row.titleCode || "")}</strong>
-              <small>${escapeHtml(row.count || "")}</small>
-            </div>
-          `).join("")}
-        </div>
-      ` : ""}
+    let { data, error } = await query;
 
-      ${grouped.map(group => `
-        <h4 class="subsection-title">${escapeHtml(group.label)}</h4>
-        <div class="table-wrap">
-          <table class="records-table">
-            <thead><tr>
-              <th>Date</th><th>Show</th><th>Test</th><th>Result</th><th>Score</th>
-            </tr></thead>
-            <tbody>
-              ${group.records.map(r => `
-                <tr>
-                  <td>${escapeHtml(r.event_date || "")}</td>
-                  <td>${escapeHtml(r.show_name || "")}</td>
-                  <td>${escapeHtml(r.class || r.score_label || group.label)}</td>
-                  <td>${recordPassed(r) === true ? "Pass" : recordPassed(r) === false ? "Fail" : "Recorded"}</td>
-                  <td>${escapeHtml(formatScore(r))}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      `).join("")}
-    </section>
-  `;
-}
+    if (error && /activity_key|score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
+      const retry = await supabase
+        .from('show_records')
+        .select('upload_id, animal_id, placement, class')
+        .in('upload_id', chunk)
+        .eq('show_type', kind);
 
-function activityFilterKey(record, activityTypes) {
-  if (isBestInFieldActivityRecord(record)) return "";
-
-  const activity = resolveActivityForRecord(record, activityTypes);
-  const raw =
-    activity?.display_name ||
-    activity?.activity_key ||
-    record?.activity_key ||
-    record?.class ||
-    "unknown";
-
-  return activityBaseKey(cleanActivityDisplayName(raw));
-}
-
-function cleanActivityDisplayName(value) {
-  return String(value || "")
-    // Activity divisions/groups are class subdivisions, not separate activities.
-    // Example: "Canine Treibball Team - Herding" -> "Canine Treibball Team"
-    .replace(/\s+-\s+[^-]+$/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function activityFilterLabel(record, activityTypes) {
-  if (isBestInFieldActivityRecord(record)) return "";
-
-  const activity = resolveActivityForRecord(record, activityTypes);
-  const rawLabel =
-    activity?.display_name ||
-    activity?.activity_key ||
-    fallbackActivityNameFromClass(record?.class) ||
-    "Other";
-
-  return cleanActivityDisplayName(rawLabel);
-}
-
-function activityFilterButtons(records, tableId, activityTypes) {
-  const byKey = new Map();
-
-  (records || []).forEach(record => {
-    const key = activityFilterKey(record, activityTypes);
-    if (!key || byKey.has(key)) return;
-    byKey.set(key, activityFilterLabel(record, activityTypes));
-  });
-
-  const entries = [...byKey.entries()].sort((a,b) => String(a[1]).localeCompare(String(b[1])));
-  if (entries.length <= 1) return "";
-
-  return `
-    <div class="activity-tabs" data-target="${escapeHtml(tableId)}">
-      <button type="button" class="activity-tab active" data-activity="all">All Activities</button>
-      ${entries.map(([key,label]) => `
-        <button type="button" class="activity-tab" data-activity="${escapeHtml(key)}">${escapeHtml(label)}</button>
-      `).join("")}
-    </div>
-  `;
-}
-
-function renderActivityRecordTable(records, tableId, activityTypes) {
-  if (!records.length) return `<div class="empty">No activity records in this section.</div>`;
-
-  return `
-    ${activityFilterButtons(records, tableId, activityTypes)}
-    ${yearFilterButtons(records, tableId)}
-    <div class="table-wrap">
-      <table class="records-table" id="${escapeHtml(tableId)}">
-        <thead><tr>
-          <th>Date</th><th>Show</th><th>Activity</th><th>Class</th><th>Placement</th><th>Points</th><th>Score</th>
-        </tr></thead>
-        <tbody>
-          ${records.map(r => `
-            <tr data-year="${escapeHtml(recordYear(r))}" data-activity="${escapeHtml(activityFilterKey(r, activityTypes))}">
-              <td>${escapeHtml(r.event_date || "")}</td>
-              <td>${escapeHtml(r.show_name || "")}</td>
-              <td>${escapeHtml(activityFilterLabel(r, activityTypes))}</td>
-              <td>${escapeHtml(displayRecordClass(r, records))}</td>
-              <td>${escapeHtml(r.placement || "")}</td>
-              <td>${pointsValue(r)}</td>
-              <td>${escapeHtml(formatScore(r))}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function applyRecordFilters(table) {
-  if (!table) return;
-  const root = table.closest(".panel") || table.parentElement?.parentElement || document;
-  const yearGroup = root.querySelector(`.year-tabs[data-target="${table.id}"]`);
-  const activityGroup = root.querySelector(`.activity-tabs[data-target="${table.id}"]`);
-  const year = yearGroup?.querySelector(".year-tab.active")?.dataset.year || "all";
-  const activity = activityGroup?.querySelector(".activity-tab.active")?.dataset.activity || "all";
-
-  table.querySelectorAll("tbody tr").forEach(row => {
-    const yearOk = year === "all" || row.dataset.year === year;
-    const activityOk = activity === "all" || row.dataset.activity === activity;
-    row.hidden = !(yearOk && activityOk);
-  });
-}
-
-function recordYear(record) {
-  const match = String(record?.event_date || "").match(/^(\d{4})/);
-  return match ? match[1] : "Unknown";
-}
-
-function yearFilterButtons(records, targetId) {
-  const years = [...new Set((records || []).map(recordYear).filter(y => y !== "Unknown"))]
-    .sort((a,b) => Number(b) - Number(a));
-  if (!years.length) return "";
-
-  return `
-    <div class="year-tabs" data-target="${escapeHtml(targetId)}">
-      <button type="button" class="year-tab active" data-year="all">All Years</button>
-      ${years.map(year => `<button type="button" class="year-tab" data-year="${year}">${year}</button>`).join("")}
-    </div>
-  `;
-}
-
-function renderRecordTable(records, tableId) {
-  if (!records.length) return `<div class="empty">No records in this section.</div>`;
-
-  return `
-    ${yearFilterButtons(records, tableId)}
-    <div class="table-wrap">
-      <table class="records-table" id="${escapeHtml(tableId)}">
-        <thead><tr>
-          <th>Date</th><th>Show</th><th>Class</th><th>Placement</th><th>Points</th><th>Score</th>
-        </tr></thead>
-        <tbody>
-          ${records.map(r => `
-            <tr data-year="${escapeHtml(recordYear(r))}">
-              <td>${escapeHtml(r.event_date || "-")}</td>
-              <td>${escapeHtml(r.show_name || "-")}</td>
-              <td>${escapeHtml(displayRecordClass(r, records))}</td>
-              <td>${escapeHtml(r.placement || "-")}</td>
-              <td>${pointsValue(r)}</td>
-              <td>${escapeHtml(formatScore(r))}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderStructuredClubProgress(rows) {
-  if (!rows?.length) {
-    return `<div class="empty">No title progress yet.</div>`;
-  }
-
-  return `
-    <div class="table-wrap">
-      <table class="titles-table">
-        <thead>
-          <tr>
-            <th>Category</th>
-            <th>Title</th>
-            <th>Code</th>
-            <th>Requirement</th>
-            <th>Current</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${rows
-            .slice()
-            .sort((a,b) => Number(a.sort || 0) - Number(b.sort || 0))
-            .map(row => `
-              <tr>
-                <td>${escapeHtml(row.category || "")}</td>
-                <td>${escapeHtml(row.title || row.titleName || "")}</td>
-                <td>${escapeHtml(row.code || row.titleCode || "")}</td>
-                <td>${escapeHtml(row.requirement || "")}</td>
-                <td>${escapeHtml(row.current || row.count || "")}</td>
-                <td>
-                  <span class="status-pill ${row.earned ? "earned" : "progress"}">
-                    ${row.earned ? "Earned" : "In Progress"}
-                  </span>
-                </td>
-              </tr>
-            `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderClubProgressTable(rows) {
-  if (!rows?.length) return `<div class="empty">This animal has club records, but no club title has been earned yet.</div>`;
-  return `
-    <div class="table-wrap">
-      <table class="titles-table">
-        <thead><tr><th>Title</th><th>Code</th><th>Progress / Qualification</th></tr></thead>
-        <tbody>
-          ${rows.slice().sort((a,b) => Number(a.sort || 0) - Number(b.sort || 0)).map(row => `
-            <tr>
-              <td>${escapeHtml(row.titleName || "")}</td>
-              <td>${escapeHtml(row.titleCode || "")}</td>
-              <td>${escapeHtml(row.count || "Earned")}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function enduranceClubSummary(records) {
-  const club = (records || []).filter(isEnduranceClubRecord);
-  const completed = club.filter(r => r?.endurance_completed === true || recordPassed(r) === true);
-  const totalDistance = completed.reduce((sum,r) => sum + (Number(r?.endurance_distance_km) || 0), 0);
-  const totalMoney = club.reduce((sum,r) => sum + (Number(r?.endurance_winnings) || 0), 0);
-  const totalPoints = club.reduce((sum,r) => sum + pointsValue(r), 0);
-
-  return `
-    <div class="club-summary-grid">
-      <div class="mini-stat"><span>Total Club Points</span><strong>${totalPoints.toLocaleString()}</strong></div>
-      <div class="mini-stat"><span>Total Money Earned</span><strong>$${totalMoney.toLocaleString()}</strong></div>
-      <div class="mini-stat"><span>Total Distance</span><strong>${totalDistance.toLocaleString()} km</strong></div>
-      <div class="mini-stat"><span>Completed Races</span><strong>${completed.length}</strong></div>
-    </div>
-  `;
-}
-
-function isEnduranceClubAwardRecord(record) {
-  const eventType = normalizeKey(record?.association_event_type);
-  const placement = normalizeKey(record?.placement);
-  const classText = normalizeKey(record?.class);
-
-  return (
-    eventType.includes("champion") ||
-    eventType.includes("award") ||
-    placement.includes("circuit champion") ||
-    placement.includes("series champion") ||
-    classText.includes("circuit champion") ||
-    classText.includes("series champion")
-  );
-}
-
-function enduranceDisplayShowName(record) {
-  const raw = String(record?.show_name || "").trim();
-  const generic = normalizeKey(raw);
-
-  if (!raw || generic === "untitled show" || generic === "activity show" || generic === "activities") {
-    return (
-      record?.endurance_conference ||
-      record?.endurance_series ||
-      record?.endurance_circuit ||
-      "Endurance Club"
-    );
-  }
-
-  return raw;
-}
-
-function enduranceDisplayRaceName(record) {
-  return (
-    record?.endurance_race_name ||
-    String(record?.class || "").replace(/^Endurance\s*-\s*/i, "").trim() ||
-    record?.endurance_race_key ||
-    "Endurance Race"
-  );
-}
-
-function renderEnduranceRaceTable(records, tableId) {
-  const races = (records || []).filter(r => !isEnduranceClubAwardRecord(r));
-  if (!races.length) return `<div class="empty">No Endurance Club race records yet.</div>`;
-
-  return `
-    ${yearFilterButtons(races, tableId)}
-    <div class="table-wrap">
-      <table class="records-table" id="${escapeHtml(tableId)}">
-        <thead><tr>
-          <th>Date</th><th>Show</th><th>Race</th><th>Placement</th><th>Points</th><th>Distance</th><th>Money Earned</th>
-        </tr></thead>
-        <tbody>
-          ${races.map(r => `
-            <tr data-year="${escapeHtml(recordYear(r))}">
-              <td>${escapeHtml(r.event_date || "")}</td>
-              <td>${escapeHtml(enduranceDisplayShowName(r))}</td>
-              <td>${escapeHtml(enduranceDisplayRaceName(r))}</td>
-              <td>${escapeHtml(r.placement || "")}</td>
-              <td>${pointsValue(r)}</td>
-              <td>${Number(r?.endurance_distance_km || 0) ? `${Number(r.endurance_distance_km).toLocaleString()} km` : ""}</td>
-              <td>${Number(r?.endurance_winnings || 0) ? `$${Number(r.endurance_winnings).toLocaleString()}` : ""}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderEnduranceAwards(records) {
-  const awards = (records || []).filter(isEnduranceClubAwardRecord);
-  if (!awards.length) return "";
-
-  return `
-    <h4 class="subsection-title">Club Awards</h4>
-    <div class="table-wrap">
-      <table class="titles-table">
-        <thead><tr><th>Award</th><th>Result</th><th>Season / Show</th></tr></thead>
-        <tbody>
-          ${awards.map(r => `
-            <tr>
-              <td>${escapeHtml(r.class || r.association_event_type || "Endurance Club Award")}</td>
-              <td>${escapeHtml(r.placement || "Earned")}</td>
-              <td>${escapeHtml(r.show_name || r.endurance_season || "")}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function isHerdingClubRecord(record) {
-  if (isHerdingInstinctRecord(record)) return true;
-
-  const associationKey = normalizeKey(record?.association_key);
-  const showName = normalizeKey(record?.show_name);
-  const classText = normalizeKey(record?.class);
-  const labelText = normalizeKey(record?.score_label);
-  const combined = `${showName} ${classText} ${labelText}`.trim();
-
-  // Explicitly stored club records.
-  if (associationKey === "herding club") {
-    return (
-      combined.includes("stakes") ||
-      combined.includes("instinct")
-    );
-  }
-
-  // Historical/legacy club uploads may not have association_key,
-  // but the show/class text clearly identifies Herding Club Stakes.
-  const isClubShow = showName.includes("herding club");
-  const isStakes =
-    combined.includes("stakes") ||
-    /\b(beginners?|advanced|expert|championship|puppy)\b/.test(classText) &&
-    /\b(sheep|cattle|duck|ducks|reindeer)\b/.test(classText);
-
-  return isClubShow && isStakes;
-}
-
-function hasHerdingRecords(records) {
-  return (records || []).some(isHerdingClubRecord);
-}
-
-function getClubPanels(records, animal, herdingRules) {
-  const panels = [];
-
-  const enduranceRecords = records.filter(isEnduranceClubRecord);
-  if (enduranceRecords.length) {
-    const data = calculateEnduranceClubTitles(records, animal);
-    panels.push({
-      key:"endurance", label:"Endurance Club",
-      html:`<section class="panel">
-        <h3 class="panel-title">Endurance Club</h3>
-        ${enduranceClubSummary(records)}
-        <h4 class="subsection-title">Title Progress</h4>
-        ${renderEnduranceTitleProgress(records, animal)}
-        <h4 class="subsection-title">Race Records</h4>
-        ${renderEnduranceRaceTable(enduranceRecords, "club-records-endurance")}
-        ${renderEnduranceAwards(enduranceRecords)}
-      </section>`
-    });
-  }
-
-  const huntingRecords = records.filter(r => normalizeKey(r?.association_key) === "hunting club");
-  if (huntingRecords.length) {
-    const data = calculateHuntingClubTitles(records, animal);
-    panels.push({
-      key:"hunting", label:"Hunting Club",
-      html:`<section class="panel">
-        <h3 class="panel-title">Hunting Club</h3>
-        <h4 class="subsection-title">Title Progress</h4>
-        ${renderStructuredClubProgress(data.rows)}
-        <h4 class="subsection-title">Club Records</h4>
-        ${renderRecordTable(huntingRecords, "club-records-hunting")}
-      </section>`
-    });
-  }
-
-  const ihassRecords = records.filter(r => normalizeKey(r?.association_key) === "ihass");
-  if (ihassRecords.length) {
-    const data = calculateIcelandicAssociationTitles(records, animal);
-    panels.push({
-      key:"ihass", label:"IHASS",
-      html:`<section class="panel">
-        <h3 class="panel-title">IHASS</h3>
-        <h4 class="subsection-title">Title Progress</h4>
-        ${renderStructuredClubProgress(data.rows)}
-        <h4 class="subsection-title">Association Records</h4>
-        ${renderRecordTable(ihassRecords, "club-records-ihass")}
-      </section>`
-    });
-  }
-
-  if (hasHerdingRecords(records)) {
-    const clubHerdingRecords = records.filter(isHerdingClubRecord);
-    const data = calculateHerdingTitles(clubHerdingRecords, animal, herdingRules);
-
-    const herdingRecords = records.filter(isHerdingClubRecord);
-
-    panels.push({
-      key:"herding", label:"Herding Club",
-      html:`<section class="panel">
-        <h3 class="panel-title">Herding Club</h3>
-
-        <h4 class="subsection-title">Title Progress</h4>
-        ${renderClubProgressTable(data.rows)}
-
-        ${herdingRecords.length ? `
-          <h4 class="subsection-title">Herding Records</h4>
-          ${renderRecordTable(herdingRecords, "club-records-herding")}
-        ` : ""}
-      </section>`
-    });
-  }
-
-  return panels;
-}
-
-function animalInfoLine(animal) {
-  const bits = [
-    animal?.animal_number ? `ID #${animal.animal_number}` : null,
-    animal?.breed,
-    animal?.colour,
-    animal?.gender,
-    animal?.birthyear ? `Born: ${animal.birthyear}` : null,
-    animal?.owner ? `Owner: ${animal.owner}` : null,
-    animal?.breeder ? `Breeder: ${animal.breeder}` : null
-  ].filter(Boolean);
-
-  return bits.map(escapeHtml).join(`<span class="meta-sep">|</span>`);
-}
-
-function collapseTeamActivityRecords(records) {
-  const teamClassPattern = /\b(pack|relay|team|brace)\b/i;
-  const seen = {};
-  const collapsed = [];
-
-  (records || []).forEach(r => {
-    if (canonicalShowType(r.show_type) !== "activity" || !teamClassPattern.test(String(r.class || ""))) {
-      collapsed.push(r);
-      return;
+      data = retry.data;
+      error = retry.error;
     }
 
-    const key = [r.show_name || "", r.class || "", r.placement || "", pointsValue(r), r.event_date || ""].join("||");
-    if (seen[key]) return;
-    seen[key] = true;
-    collapsed.push(r);
-  });
+    if (error) throw new Error('Qualifier record load failed: ' + error.message);
+    all.push(...(data || []));
+  }
 
-  return collapsed;
+  return all;
 }
-
-function renderRecords(records, animal, titleRules, activityRules, activityTypes, totalRules, herdingRules) {
-  const titleData = calculateTitleData(records, animal, titleRules, activityRules, activityTypes, totalRules, herdingRules);
-  const registeredName = buildRegisteredName(animal, titleData);
-  const pointRows = getPointBasedTitleRows(records, titleRules, activityRules, activityTypes);
-  const clubs = getClubPanels(records, animal, herdingRules);
-  const conformation = records.filter(r => canonicalShowType(r.show_type) === "conformation");
-  const testingRecords = records.filter(isTestingCertificateRecord);
-  const activities = collapseTeamActivityRecords(records.filter(r =>
-    canonicalShowType(r.show_type) === "activity" &&
-    !isTestingCertificateRecord(r) &&
-    !isManualScoreRecord(r) &&
-    !isBestInFieldActivityRecord(r)
-  ));
-
-  const nav = [
-    {key:"overview", label:"Overview"},
-    {key:"conformation", label:"Conformation Records"},
-    {key:"activities", label:"Activity Records"},
-    ...(testingRecords.length ? [{key:"testing", label:"Testing & Certificates"}] : []),
-    {key:"versatility", label:"Versatility"},
-    ...clubs.map(c => ({key:`club-${c.key}`, label:c.label}))
-  ];
-
-  return `
-    <header class="animal-header">
-      <div class="full-name">${escapeHtml(registeredName)}</div>
-      <div class="animal-meta">${animalInfoLine(animal)}</div>
-    </header>
-
-    <section class="title-strip panel">
-      <h3 class="panel-title">Titles</h3>
-      <div class="registered-name">${escapeHtml(registeredName)}</div>
-    </section>
-
-    <nav class="main-tabs" aria-label="Show record sections">
-      ${nav.map((item,index) => `
-        <button type="button" class="main-tab ${index === 0 ? "active" : ""}" data-tab="${escapeHtml(item.key)}">${escapeHtml(item.label)}</button>
-      `).join("")}
-    </nav>
-
-    <div class="tab-panels">
-      <section class="tab-panel active" data-panel="overview">
-        <div class="overview-grid">
-          ${renderPointBasedTitles(pointRows)}
-          ${buildHighlights(records)}
-        </div>
-      </section>
-
-      <section class="tab-panel" data-panel="conformation">
-        <section class="panel">
-          <h3 class="panel-title">Conformation Records</h3>
-          ${renderRecordTable(conformation, "conformation-records-table")}
-        </section>
-      </section>
-
-      <section class="tab-panel" data-panel="activities">
-        <section class="panel">
-          <h3 class="panel-title">Activity Records</h3>
-          ${renderActivityRecordTable(activities, "activity-records-table", activityTypes)}
-        </section>
-      </section>
-
-      ${testingRecords.length ? `
-        <section class="tab-panel" data-panel="testing">
-          ${renderTestingCertificatesPanel(records, animal)}
-        </section>
-      ` : ""}
-
-      <section class="tab-panel" data-panel="versatility">
-        ${renderVersatilityPanel(animal, titleData)}
-      </section>
-
-      ${clubs.map(club => `
-        <section class="tab-panel" data-panel="club-${escapeHtml(club.key)}">${club.html}</section>
-      `).join("")}
-    </div>
-  `;
-}
-
-function wireShowRecordTabs() {
-  document.querySelectorAll(".main-tabs").forEach(nav => {
-    nav.addEventListener("click", event => {
-      const button = event.target.closest(".main-tab");
-      if (!button) return;
-      const root = nav.parentElement;
-      nav.querySelectorAll(".main-tab").forEach(btn => btn.classList.toggle("active", btn === button));
-      root.querySelectorAll(".tab-panel").forEach(panel => {
-        panel.classList.toggle("active", panel.dataset.panel === button.dataset.tab);
-      });
-    });
-  });
-
-  document.querySelectorAll(".year-tabs").forEach(group => {
-    group.addEventListener("click", event => {
-      const button = event.target.closest(".year-tab");
-      if (!button) return;
-      group.querySelectorAll(".year-tab").forEach(btn => btn.classList.toggle("active", btn === button));
-      applyRecordFilters(document.getElementById(group.dataset.target));
-    });
-  });
-
-  document.querySelectorAll(".activity-tabs").forEach(group => {
-    group.addEventListener("click", event => {
-      const button = event.target.closest(".activity-tab");
-      if (!button) return;
-      group.querySelectorAll(".activity-tab").forEach(btn => btn.classList.toggle("active", btn === button));
-      applyRecordFilters(document.getElementById(group.dataset.target));
-    });
-  });
-}
-
-async function loadUploadMetadataForRecords(supabase, records) {
-  const uploadIds = [...new Set(
-    (records || [])
-      .map(record => record?.upload_id)
-      .filter(Boolean)
-      .map(String)
-  )];
-
-  if (!uploadIds.length) return new Map();
-
-  const map = new Map();
+async function loadChampionshipAnimals(supabase, animalIds) {
+  const animals = [];
   const chunkSize = 100;
 
-  for (let i = 0; i < uploadIds.length; i += chunkSize) {
-    const chunk = uploadIds.slice(i, i + chunkSize);
-
+  for (let i = 0; i < animalIds.length; i += chunkSize) {
+    const chunk = animalIds.slice(i, i + chunkSize);
     const { data, error } = await supabase
-      .from("show_uploads")
-      .select("id, show_name, series_name, series_round, created_at")
-      .in("id", chunk);
+      .from('animals')
+      .select('id, name, normalized_name, breed, owner, gender')
+      .in('id', chunk);
 
-    if (error) {
-      console.warn("Show upload metadata load error:", error.message);
+    if (error) throw new Error('Qualifier animal load failed: ' + error.message);
+    animals.push(...(data || []));
+  }
+
+  const map = new Map();
+  animals.forEach(animal => map.set(String(animal.id), animal));
+  return map;
+}
+function cleanChampionshipResultLine(line) {
+  return cleanLine(line)
+    .replace(/^\d+(?:st|nd|rd|th)?\s+/i, '')
+    .replace(/^(?:Best in Show Specialty|Reserve Best in Show Specialty|Best in Show|Reserve Best in Show|Best in Group|Reserve Best in Group|Best of Breed|Male Challenge|Female Challenge|Reserve Male Challenge|Reserve Female Challenge)\s*:\s*/i, '')
+    .trim();
+}
+function sourceLinesForShow(show) {
+  return String(show && show.raw_text ? show.raw_text : '')
+    .split(/\r?\n/)
+    .map(cleanLine)
+    .filter(Boolean);
+}
+function findDisplayedChampionshipEntry(animal, sourceShows, preferredUploadId) {
+  const registryCandidates = [animal.name, animal.normalized_name]
+    .map(normalizeNameForUpload)
+    .filter(Boolean);
+
+  const orderedShows = sourceShows.slice().sort((a, b) => {
+    const ap = String(a.id) === String(preferredUploadId) ? 0 : 1;
+    const bp = String(b.id) === String(preferredUploadId) ? 0 : 1;
+    return ap - bp;
+  });
+
+  for (const show of orderedShows) {
+    for (const rawLine of sourceLinesForShow(show)) {
+      const candidate = cleanChampionshipResultLine(rawLine);
+      if (!candidate || !/\s+-\s+/.test(candidate)) continue;
+      const normalized = normalizeNameForUpload(stripEntryOwner(candidate));
+
+      const matches = registryCandidates.some(registryName =>
+        normalized === registryName ||
+        normalized.startsWith(registryName + ' ') ||
+        normalized.endsWith(' ' + registryName) ||
+        normalized.includes(' ' + registryName + ' ')
+      );
+
+      if (matches) return candidate;
+    }
+  }
+
+  const name = cleanLine(animal.name || animal.normalized_name || 'Unknown Animal');
+  const owner = cleanLine(animal.owner || 'Unknown Owner');
+  return name + ' - ' + owner;
+}
+function championshipHeadingText(value) {
+  return cleanLine(String(value || '')
+    .replace(/\[\/?b\]/gi, '')
+    .replace(/\[\/?size(?:=[^\]]+)?\]/gi, '')
+    .replace(/\[\/?center\]/gi, '')
+    .replace(/\[\/?font(?:=[^\]]+)?\]/gi, '')
+    .replace(/\[\/?color(?:=[^\]]+)?\]/gi, '')
+  );
+}
+function buildBreedGroupLookup(sourceShows) {
+  const lookup = new Map();
+  const knownGroups = new Set(SS_CONFIG.groupOrder.map(normalizeGroupName));
+
+  sourceShows.forEach(show => {
+    let currentGroup = null;
+    const rawLines = sourceLinesForShow(show);
+    const lines = rawLines.map(championshipHeadingText);
+
+    lines.forEach((line, index) => {
+      const normalizedGroup = normalizeGroupName(line);
+      if (knownGroups.has(normalizedGroup)) {
+        currentGroup = normalizedGroup;
+        return;
+      }
+
+      if (!currentGroup) return;
+
+      const breedListMatch = line.match(/^Breeds:\s*(.+)$/i);
+      if (breedListMatch) {
+        breedListMatch[1].split(',').map(normalizeBreedName).filter(Boolean).forEach(breed => {
+          if (!lookup.has(breed.toLowerCase())) lookup.set(breed.toLowerCase(), currentGroup);
+        });
+        return;
+      }
+
+      // Breed headings in stored BBCode result text are followed by a Class line.
+      const next = lines[index + 1] || '';
+      if (isClassLine(next)) {
+        const breed = normalizeBreedName(line);
+        if (breed && !lookup.has(breed.toLowerCase())) lookup.set(breed.toLowerCase(), currentGroup);
+      }
+    });
+  });
+
+  return lookup;
+}
+function addChampionshipEntry(groups, details) {
+  let group = groups.find(g => g.name === details.groupName);
+  if (!group) {
+    group = { name: details.groupName, breeds: [] };
+    groups.push(group);
+  }
+  let breed = group.breeds.find(b => b.name.toLowerCase() === details.breedName.toLowerCase());
+  if (!breed) {
+    breed = { name: details.breedName, classes: [] };
+    group.breeds.push(breed);
+  }
+  let cls = breed.classes.find(c => c.name.toLowerCase() === details.className.toLowerCase());
+  if (!cls) {
+    cls = { name: details.className, entries: [] };
+    breed.classes.push(cls);
+  }
+  if (!cls.entries.some(entry => normalizeNameForUpload(stripEntryOwner(entry)) === normalizeNameForUpload(stripEntryOwner(details.entry)))) {
+    cls.entries.push(details.entry);
+  }
+}
+async function buildConformationChampionshipQualifiers(showData, previewOnly) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
+
+  const seriesName = cleanLine($('championshipSeries').value);
+  const showIds = selectedChampionshipShowIds();
+  const rule = $('championshipQualification').value;
+
+  if (!seriesName) throw new Error('Please select a championship series or All Saved Conformation Shows.');
+  if (!showIds.length) throw new Error('Please select at least one source show.');
+
+  const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
+  const records = await loadRecordsForShowIds(supabase, showIds, 'conformation');
+  const qualifyingRecords = records.filter(record =>
+    record.animal_id && championshipAwardAllowed(record.placement, rule)
+  );
+
+  const qualifiedIds = [...new Set(qualifyingRecords.map(record => String(record.animal_id)))];
+  if (!qualifiedIds.length) throw new Error('No animals met the selected qualification rule.');
+
+  const animalsById = await loadChampionshipAnimals(supabase, qualifiedIds);
+  const breedGroupLookup = buildBreedGroupLookup(sourceShows);
+  const groups = [];
+  const unresolved = [];
+  const usedIds = new Set();
+
+  for (const record of qualifyingRecords) {
+    const animalId = String(record.animal_id);
+    if (usedIds.has(animalId)) continue;
+
+    const animal = animalsById.get(animalId);
+    if (!animal) {
+      unresolved.push(animalId + ' (animal not found)');
       continue;
     }
 
-    (data || []).forEach(upload => map.set(String(upload.id), upload));
+    const breedName = normalizeBreedName(animal.breed || '');
+    const groupName = breedGroupLookup.get(breedName.toLowerCase());
+    const className = cleanLine(record.class) || (String(animal.gender || '').toLowerCase().startsWith('f') ? 'Class 1a' : 'Class 1');
+
+    if (!breedName || !groupName) {
+      unresolved.push((animal.name || animalId) + ' (breed/group not found)');
+      continue;
+    }
+
+    addChampionshipEntry(groups, {
+      groupName,
+      breedName,
+      className,
+      entry: findDisplayedChampionshipEntry(animal, sourceShows, record.upload_id)
+    });
+    usedIds.add(animalId);
   }
 
-  return map;
-}
-
-function sortRecordsByUploadAndSeries(records, uploadMap) {
-  const rows = (records || []).slice();
-
-  // Find the newest upload timestamp represented by each named series.
-  const seriesNewest = new Map();
-
-  rows.forEach(record => {
-    const upload = uploadMap.get(String(record?.upload_id || ""));
-    const series = String(upload?.series_name || '').replace(/\s+/g, ' ').trim();
-    if (!series) return;
-
-    const stamp = Date.parse(upload?.created_at || "") || 0;
-    const existing = seriesNewest.get(series) || 0;
-    if (stamp > existing) seriesNewest.set(series, stamp);
+  const mergedGroups = mergeConformationGroups(groups);
+  const breedCounts = {};
+  mergedGroups.forEach(group => {
+    group.breeds.forEach(breed => {
+      breedCounts[breed.name] = (breedCounts[breed.name] || 0) + countBreedIndividuals(breed);
+    });
   });
 
-  function info(record) {
-    const upload = uploadMap.get(String(record?.upload_id || ""));
-    const series = String(upload?.series_name || '').replace(/\s+/g, ' ').trim();
-    const uploadStamp =
-      Date.parse(upload?.created_at || "") ||
-      Date.parse(record?.event_date || "") ||
-      0;
+  championshipPreviewCache = {
+    seriesName: seriesName === '__ALL_SAVED__' ? 'Selected Saved Shows' : seriesName,
+    rule,
+    selectedShows: sourceShows,
+    groups: mergedGroups,
+    qualifiedCount: usedIds.size,
+    unresolvedCount: unresolved.length,
+    unresolved,
+    breedCounts
+  };
 
+  if (!usedIds.size) {
+    const detail = unresolved.length ? ' ' + unresolved.slice(0, 5).join('; ') : '';
+    throw new Error('Qualifying records were found, but their registry breed/group data could not be rebuilt.' + detail);
+  }
+
+  if (previewOnly) return championshipPreviewCache;
+
+  showData.seriesName = seriesName === '__ALL_SAVED__' ? null : seriesName;
+  showData.seriesRound = null;
+  showData.rawData = championshipGroupsToRawData(mergedGroups);
+  return runConformationGroups(mergedGroups, showData, { finals: 'all-breed' });
+}
+
+function numericPlacement(value) {
+  const match = String(value || '').match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
+function activityChampionshipRecordAllowed(record, rule) {
+  const placementText = cleanLine(record.placement).toLowerCase();
+  const place = numericPlacement(record.placement);
+
+  if (rule === 'all-entrants') return true;
+  if (rule === 'first-place') return place === 1 || placementText === 'best in field';
+  if (rule === 'top-three') return place !== null && place >= 1 && place <= 3;
+  if (rule === 'any-placement') return place !== null && place >= 1 && place <= 5;
+  if (rule === 'best-in-field') return placementText === 'best in field';
+  if (rule === 'qualifying-score') {
+    return record.passed === true ||
+      /qualif|pass/i.test(String(record.score_label || ''));
+  }
+
+  return false;
+}
+
+function selectedActivityKeyForChampionship() {
+  const select = $('activityKey');
+  if (!select) return null;
+  return select.value && select.value !== '__MIXED__' ? select.value : null;
+}
+
+function championshipIncludesAllActivities() {
+  return !$('activityKey') || $('activityKey').value === '__MIXED__';
+}
+
+function activityClassWithoutActivityPrefix(className, activityName) {
+  let value = cleanLine(className);
+  const prefix = cleanLine(activityName);
+
+  if (prefix && value.toLowerCase().startsWith(prefix.toLowerCase() + ' - ')) {
+    value = cleanLine(value.slice(prefix.length + 3));
+  }
+
+  return value || 'Championship';
+}
+
+function recordBelongsToSelectedActivity(record, activityKey) {
+  if (!activityKey) return true;
+  if (record.activity_key) return String(record.activity_key) === String(activityKey);
+
+  const display = displayActivityNameForKey(activityKey);
+  const cls = cleanLine(record.class).toLowerCase();
+  const name = cleanLine(display).toLowerCase();
+
+  return cls === name || cls.startsWith(name + ' - ');
+}
+
+function activityInfoFromRecord(record, selectedActivityKey) {
+  const explicitKey = record.activity_key || selectedActivityKey || null;
+
+  if (explicitKey) {
     return {
-      series,
-      groupKey: series ? "series::" + series : "upload::" + String(record?.upload_id || record?.show_name || ""),
-      groupStamp: series ? (seriesNewest.get(series) || uploadStamp) : uploadStamp,
-      uploadStamp,
-      round: Number.isFinite(Number(upload?.series_round)) ? Number(upload.series_round) : null,
-      showName: String(record?.show_name || upload?.show_name || "")
+      key: explicitKey,
+      name: displayActivityNameForKey(explicitKey)
     };
   }
 
-  return rows.sort((a, b) => {
-    const ai = info(a);
-    const bi = info(b);
-
-    // Newest show/series block first.
-    if (bi.groupStamp !== ai.groupStamp) return bi.groupStamp - ai.groupStamp;
-
-    // Keep every member of the same series together.
-    if (ai.groupKey !== bi.groupKey) {
-      return ai.groupKey.localeCompare(bi.groupKey);
-    }
-
-    // Within a series, preserve upload order: newest uploaded show first.
-    if (bi.uploadStamp !== ai.uploadStamp) return bi.uploadStamp - ai.uploadStamp;
-
-    // If timestamps tie, use round (newest/highest round first) then show name.
-    if (ai.round !== bi.round) {
-      if (ai.round === null) return 1;
-      if (bi.round === null) return -1;
-      return bi.round - ai.round;
-    }
-
-    return ai.showName.localeCompare(bi.showName);
-  });
-}
-
-async function loadRecords() {
-  const animalRef = getAnimalNumber();
-  const supabase = getSupabase();
-  const content = document.getElementById("content");
-
-  try {
-    if (!supabase) {
-      content.innerHTML = `<div class="empty">Supabase is not loaded on this page.</div>`;
-      return;
-    }
-
-    if (!animalRef) {
-      content.innerHTML = `<div class="empty">Missing animal ID in the popup URL.</div>`;
-      return;
-    }
-
-    const animal = await getAnimal(animalRef);
-
-    if (!animal) {
-      content.innerHTML = `<div class="empty">Animal could not be found for this show records page.</div>`;
-      return;
-    }
-
-    const animalNumber = animal.animal_number;
-    const animalId = animal.id;
-
-    const pageSize = 1000;
-
-    async function fetchPagedRecords(filterType) {
-      let rowsOut = [];
-      let from = 0;
-      let to = pageSize - 1;
-
-      while (true) {
-        let query = supabase
-          .from("show_records")
-          .select("*")
-          .order("event_date", { ascending: false })
-          .range(from, to);
-
-        if (filterType === "animal_number" && animalNumber !== null && animalNumber !== undefined && animalNumber !== "") {
-          query = query.eq("animal_number", Number(animalNumber));
-        }
-
-        if (filterType === "animal_id" && animalId) {
-          query = query.eq("animal_id", animalId);
-        }
-
-        const { data: pageData, error } = await query;
-
-        if (error) {
-          throw error;
-        }
-
-        const rows = pageData || [];
-        rowsOut = rowsOut.concat(rows);
-
-        if (rows.length < pageSize) {
-          break;
-        }
-
-        from += pageSize;
-        to += pageSize;
-      }
-
-      return rowsOut;
-    }
-
-    let allRows = [];
-
-    if (animalNumber !== null && animalNumber !== undefined && animalNumber !== "") {
-      const numberRows = await fetchPagedRecords("animal_number");
-      allRows = allRows.concat(numberRows);
-    }
-
-    if (animalId) {
-      const idRows = await fetchPagedRecords("animal_id");
-      allRows = allRows.concat(idRows);
-    }
-
-    const seen = {};
-    allRows = allRows.filter(row => {
-      const key = String(row.id || `${row.show_name}-${row.class}-${row.placement}-${row.event_date}`);
-      if (seen[key]) return false;
-      seen[key] = true;
-      return true;
+  const classText = cleanLine(record.class);
+  const known = activityTypesCache
+    .slice()
+    .sort((a, b) =>
+      String(b.display_name || '').length - String(a.display_name || '').length
+    )
+    .find(row => {
+      const display = cleanLine(row.display_name).toLowerCase();
+      const cls = classText.toLowerCase();
+      return cls === display || cls.startsWith(display + ' - ');
     });
 
+  return known
+    ? { key: known.activity_key, name: known.display_name }
+    : { key: null, name: classText.split(' - ')[0] || 'Activity' };
+}
 
-    /*
-      Add synthetic Circuit Champion records from the database-wide season standings.
-      This lets the individual Show Records page award a circuit championship without
-      pretending one horse's own records can know everybody else's total.
-    */
-    if (animalId) {
-      const { data: championRows, error: championError } = await supabase
-        .from("endurance_circuit_champions")
-        .select("*")
-        .eq("animal_id", animalId);
+function buildActivityChampionshipRawData(qualifyingRecords, animalsById, activityKey) {
+  const byActivity = new Map();
+  const usedActivityAnimal = new Set();
 
-      if (!championError) {
-        (championRows || []).forEach(row => {
-          allRows.push({
-            id: `endurance-champion-${row.endurance_circuit}-${row.season}`,
-            animal_id: animalId,
-            show_name: `${row.endurance_circuit} ${row.season} Season`,
-            show_type: "activity",
-            show_scope: "association",
-            association_key: "endurance_club",
-            association_event_type: "circuit_champion",
-            activity_key: null,
-            class: "Endurance Club Circuit Champion",
-            placement: "Circuit Champion",
-            // Synthetic title marker only: circuit points already exist on the real race records.
-            // Never add them again to popup/activity totals.
-            points: 0,
-            calculated_points: 0,
-            endurance_circuit_points: Number(row.circuit_points || 0),
-            endurance_circuit: row.endurance_circuit,
-            endurance_season: Number(row.season),
-            endurance_completed: false,
-            endurance_winnings: 0
-          });
-        });
+  qualifyingRecords.forEach(record => {
+    const animalId = String(record.animal_id || '');
+    if (!animalId) return;
+
+    const animal = animalsById.get(animalId);
+    if (!animal) return;
+
+    const activityInfo = activityInfoFromRecord(record, activityKey);
+    const activityName = cleanLine(activityInfo.name || 'Activity');
+    const uniqueKey = (activityInfo.key || activityName.toLowerCase()) + '::' + animalId;
+
+    // One qualifying appearance per animal PER activity.
+    if (usedActivityAnimal.has(uniqueKey)) return;
+
+    const className = activityClassWithoutActivityPrefix(
+      record.class,
+      activityName
+    );
+
+    if (!byActivity.has(activityName)) {
+      byActivity.set(activityName, new Map());
+    }
+
+    const classMap = byActivity.get(activityName);
+    if (!classMap.has(className)) classMap.set(className, []);
+
+    const entry =
+      cleanLine(animal.name || animal.normalized_name || 'Unknown Animal') +
+      ' - ' +
+      cleanLine(animal.owner || 'Unknown Owner');
+
+    classMap.get(className).push(entry);
+    usedActivityAnimal.add(uniqueKey);
+  });
+
+  const lines = [];
+  let classCount = 0;
+
+  for (const [activityName, classMap] of [...byActivity.entries()].sort((a,b) => a[0].localeCompare(b[0]))) {
+    for (const [className, entries] of [...classMap.entries()].sort((a,b) => a[0].localeCompare(b[0]))) {
+      lines.push(activityName + ' - ' + className);
+      entries.sort((a,b) => a.localeCompare(b)).forEach(entry => lines.push(entry));
+      lines.push('');
+      classCount += 1;
+    }
+  }
+
+  return {
+    rawData: lines.join('\n').trim(),
+    qualifiedCount: usedActivityAnimal.size,
+    classCount,
+    activityCount: byActivity.size,
+    activityNames: [...byActivity.keys()].sort((a,b) => a.localeCompare(b))
+  };
+}
+
+async function buildActivityChampionshipQualifiers(showData, previewOnly) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
+
+  const seriesName = cleanLine($('championshipSeries').value);
+  const showIds = selectedChampionshipShowIds();
+  const rule = $('championshipQualification').value;
+  const activityKey = selectedActivityKeyForChampionship();
+
+  if (!seriesName) throw new Error('Please select a championship source series or saved shows.');
+  if (!showIds.length) throw new Error('Please select at least one source show.');
+
+  const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
+  const records = await loadRecordsForShowIds(supabase, showIds, 'activity');
+
+  const qualifyingRecords = records.filter(record =>
+    record.animal_id &&
+    (championshipIncludesAllActivities() || recordBelongsToSelectedActivity(record, activityKey)) &&
+    activityChampionshipRecordAllowed(record, rule)
+  );
+
+  const animalIds = [...new Set(qualifyingRecords.map(record => String(record.animal_id)))];
+  if (!animalIds.length) throw new Error('No animals met the selected activity Championship qualification rule.');
+
+  const animalsById = await loadChampionshipAnimals(supabase, animalIds);
+  const built = buildActivityChampionshipRawData(qualifyingRecords, animalsById, activityKey);
+
+  championshipPreviewCache = {
+    seriesName: seriesName === '__ALL_SAVED__' ? 'Selected Saved Shows' : seriesName,
+    rule,
+    selectedShows: sourceShows,
+    qualifiedCount: built.qualifiedCount,
+    unresolvedCount: Math.max(0, animalIds.length - built.qualifiedCount),
+    classCount: built.classCount,
+    activityCount: built.activityCount,
+    activityNames: built.activityNames,
+    activityName: activityKey ? displayActivityNameForKey(activityKey) : 'All Activities',
+    rawData: built.rawData
+  };
+
+  if (previewOnly) return championshipPreviewCache;
+
+  showData.seriesName = seriesName === '__ALL_SAVED__' ? null : seriesName;
+  showData.seriesRound = null;
+  showData.rawData = built.rawData;
+
+  return runActivity(built.rawData, showData);
+}
+
+async function buildChampionshipQualifiers(showData, previewOnly) {
+  if (selectedEventCategory() === 'activities') {
+    return buildActivityChampionshipQualifiers(showData, previewOnly);
+  }
+
+  return buildConformationChampionshipQualifiers(showData, previewOnly);
+}
+
+function championshipGroupsToRawData(groups) {
+  const lines = [];
+  mergeConformationGroups(groups).forEach(group => {
+    group.breeds.forEach((breed, breedIndex) => {
+      breed.classes.forEach((cls, classIndex) => {
+        if (breedIndex === 0 && classIndex === 0) lines.push(group.name);
+        lines.push(breed.name.toUpperCase());
+        lines.push(cls.name);
+        cls.entries.forEach(entry => lines.push(entry));
+        lines.push('');
+      });
+    });
+  });
+  return lines.join('\n').trim();
+}
+async function previewChampionship() {
+  hideMessage();
+  const button = $('championshipPreviewButton');
+  button.disabled = true;
+  button.textContent = '⏳ Loading Qualifiers...';
+  try {
+    const preview = await buildChampionshipQualifiers({
+      showName: cleanLine($('showName').value) || 'Championship Show',
+      showType: resolveLegacyShowType(),
+      species: $('showSpecies').value,
+      eventCategory: selectedEventCategory(),
+      activityKey: $('activityKey') ? $('activityKey').value : null,
+      bannerUrl: cleanLine($('bannerUrl').value),
+      rawData: ''
+    }, true);
+
+    const el = $('championshipPreview');
+
+    if (selectedEventCategory() === 'activities') {
+      el.innerHTML =
+        '<strong>' + escapeHtml(preview.seriesName) + '</strong><br>' +
+        'Activity selection: ' + escapeHtml(preview.activityName || '') + '<br>' +
+        (preview.activityCount ? 'Activities included: ' + Number(preview.activityCount) + '<br>' : '') +
+        'Source shows selected: ' + preview.selectedShows.length + '<br>' +
+        'Qualifying activity entries found: ' + preview.qualifiedCount +
+        '<br>Championship classes rebuilt: ' + Number(preview.classCount || 0) +
+        (preview.unresolvedCount ? '<br>Could not rebuild: ' + preview.unresolvedCount : '');
+    } else {
+      const breeds = Object.entries(preview.breedCounts || {})
+        .sort((a,b) => a[0].localeCompare(b[0]))
+        .map(([breed, count]) => escapeHtml(breed) + ': ' + count)
+        .join('<br>');
+
+      el.innerHTML =
+        '<strong>' + escapeHtml(preview.seriesName) + '</strong><br>' +
+        'Source shows selected: ' + preview.selectedShows.length + '<br>' +
+        'Unique qualifiers found: ' + preview.qualifiedCount +
+        (preview.unresolvedCount ? '<br>Could not rebuild from source entries: ' + preview.unresolvedCount : '') +
+        (breeds ? '<br><br><strong>Breed totals</strong><br>' + breeds : '');
+    }
+
+    el.className = 'ss-preview-summary';
+  } catch (err) {
+    showMessage('error', '<strong>Championship preview failed:</strong> ' + String(err.message || err));
+  } finally {
+    button.disabled = false;
+    button.textContent = '🔎 Preview Qualifiers';
+  }
+}
+function initializeRandomizerUI() {
+  if (!$('showSpecies')) return;
+
+  const watched = [
+    'showSpecies',
+    'showFormat',
+    'championshipMode',
+    'activityResultMethod'
+  ];
+
+  watched.forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('change', async () => {
+      if (id === 'showSpecies' && activeRandomizerTab === 'activities') {
+        await populateActivitySelector();
+      }
+
+      if (id === 'showSpecies' && activeRandomizerTab === 'specialty') {
+        renderShowFormatOptions();
+      }
+
+      updatePhase1UI();
+
+      if (
+        selectedChampionshipMode() === 'championship' &&
+        id === 'showSpecies' &&
+        activeRandomizerTab !== 'specialty'
+      ) {
+        await loadChampionshipSeries();
+      }
+
+      captureWorkspaceState();
+    });
+  });
+
+  document.querySelectorAll('.ss-engine-tab').forEach(button => {
+    button.addEventListener('click', () => {
+      switchRandomizerTab(button.dataset.engineTab);
+    });
+  });
+
+  if ($('herdingEventType')) {
+    $('herdingEventType').addEventListener('change', updateSetupSummary);
+  }
+
+  if ($('championshipSeries')) {
+    $('championshipSeries').addEventListener('change', loadChampionshipShows);
+  }
+
+  const runButton = $('ssRunButton');
+  const sortButton = $('sortButton');
+  const clearButton = $('ssClearButton');
+  const previewButton = $('championshipPreviewButton');
+
+  if (runButton) runButton.addEventListener('click', randomizeShow);
+  if (sortButton) sortButton.addEventListener('click', sortEntriesOnly);
+  if (clearButton) clearButton.addEventListener('click', clearData);
+  if (previewButton) previewButton.addEventListener('click', previewChampionship);
+
+  configureWorkspaceForTab(activeRandomizerTab);
+  setEngineTabButtons(activeRandomizerTab);
+  renderShowFormatOptions();
+  updatePhase1UI();
+  captureWorkspaceState();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializeRandomizerUI);
+} else {
+  setTimeout(initializeRandomizerUI, 0);
+}
+
+// =============================================================
+// 5. ACTIVITY MODULE
+// =============================================================
+function looksLikeAnimalEntry(line) {
+  const s = stripHeaderMarkup(line);
+
+  // Most SS entry lines are "Animal Name - Owner".
+  if (/\s+-\s+/.test(s)) return true;
+
+  // Already-randomized/result lines should never be treated as headers.
+  if (/^([1-9]|10)(st|nd|rd|th)?\s+/i.test(s)) return true;
+
+  return false;
+}
+
+function splitActivityClassHeader(header) {
+  const s = stripHeaderMarkup(header);
+  if (!s.includes(' - ')) return null;
+
+  const parts = s.split(' - ').map(cleanLine).filter(Boolean);
+  if (parts.length < 2) return null;
+
+  return {
+    activity: parts.shift(),
+    className: parts.join(' - ') || 'Untitled'
+  };
+}
+
+function makeActivityEntry(raw, scored) {
+  const cleaned = cleanLine(raw);
+  const statusMatch = cleaned.match(/^(.*?)\s+-\s+(pass|fail)$/i);
+
+  if (statusMatch) {
+    return {
+      name: cleanLine(statusMatch[1]),
+      passed: statusMatch[2].toLowerCase() === 'pass',
+      scoreLabel: 'Herding Instinct Test'
+    };
+  }
+
+  return scored ? scoreEntry(cleaned) : { name: cleaned };
+}
+function isBracketHeaderLine(line) {
+  return /^\s*\[[^\]]+\]\s*$/i.test(String(line || '').trim());
+}
+function stripActivityPrefixFromClass(activityName, classHeader) {
+  const activity = cleanLine(activityName);
+  let cls = stripHeaderMarkup(classHeader);
+
+  // Handles:
+  // [Tracking]
+  // [Tracking - Open Breeds]
+  // so the displayed class becomes "Open Breeds" instead of "Tracking - Open Breeds".
+  if (cls.toLowerCase().startsWith(activity.toLowerCase() + ' - ')) {
+    cls = cleanLine(cls.slice(activity.length + 3));
+  }
+
+  return cls || 'Untitled';
+}
+function parseActivityWithDivisions(rawData, scored) {
+  const parsed = [];
+
+  splitBlocks(rawData).forEach(block => {
+    if (block.length < 2) return;
+
+    const firstHeader = stripHeaderMarkup(block[0]);
+    const secondHeader = stripHeaderMarkup(block[1]);
+    const compactHeader = splitActivityClassHeader(block[0]);
+
+    // Format:
+    // [Barn Hunt - Open Breed]
+    // Dog - Owner
+    // Dog - Owner
+    if (compactHeader) {
+      const entries = block.slice(1).filter(line => !isBracketHeaderLine(line));
+      if (!entries.length) return;
+
+      parsed.push({
+        activity: compactHeader.activity,
+        division: null,
+        classes: [{
+          name: compactHeader.className || 'Untitled',
+          entries: entries.map(e => makeActivityEntry(e, scored))
+        }]
+      });
+      return;
+    }
+
+    // Format:
+    // [Tracking]
+    // [Tracking - Open Breeds]
+    // Dog - Owner
+    // Dog - Owner
+    // The second bracketed line is a class header, NOT an entry.
+    if (isBracketHeaderLine(block[0]) && isBracketHeaderLine(block[1]) && secondHeader.includes(' - ')) {
+      const entries = block.slice(2).filter(line => !isBracketHeaderLine(line));
+      if (!entries.length) return;
+
+      parsed.push({
+        activity: firstHeader,
+        division: null,
+        classes: [{
+          name: stripActivityPrefixFromClass(firstHeader, block[1]),
+          entries: entries.map(e => makeActivityEntry(e, scored))
+        }]
+      });
+      return;
+    }
+
+    // Format:
+    // Activity
+    // Division
+    // Class
+    // Dog - Owner
+    const possibleDivision = stripHeaderMarkup(block[1]);
+    const possibleClass = stripHeaderMarkup(block[2]);
+
+    // If line 2 or 3 looks like an animal entry, do not promote it into a header.
+    // Treat the whole block as one Untitled class under the activity.
+    if (block.length < 4 || looksLikeAnimalEntry(block[1]) || looksLikeAnimalEntry(block[2])) {
+      const entries = block.slice(1).filter(line => !isBracketHeaderLine(line));
+      if (!entries.length) return;
+
+      parsed.push({
+        activity: firstHeader,
+        division: null,
+        classes: [{
+          name: 'Untitled',
+          entries: entries.map(e => makeActivityEntry(e, scored))
+        }]
+      });
+      return;
+    }
+
+    const entries = block.slice(3).filter(line => !isBracketHeaderLine(line));
+    if (!entries.length) return;
+
+    parsed.push({
+      activity: firstHeader,
+      division: possibleDivision || null,
+      classes: [{
+        name: possibleClass || 'Untitled',
+        entries: entries.map(e => makeActivityEntry(e, scored))
+      }]
+    });
+  });
+
+  return parsed.filter(x => x && x.activity && x.classes[0].name && x.classes[0].entries.length);
+}
+function parseActivityNoDivisions(rawData, scored) {
+  return splitBlocks(rawData).map(block => {
+    let activity = stripHeaderMarkup(block[0]);
+    let className = stripHeaderMarkup(block[1]);
+    let entries = block.slice(2);
+
+    if (activity.includes(' - ') && block.length >= 2) {
+      const parts = activity.split(' - ');
+      activity = cleanLine(parts.shift());
+      className = cleanLine(parts.join(' - ')) || className || 'Untitled';
+      entries = block.slice(1);
+    } else if (isBracketHeaderLine(block[0]) && isBracketHeaderLine(block[1]) && className.includes(' - ')) {
+      className = stripActivityPrefixFromClass(activity, block[1]);
+      entries = block.slice(2);
+    }
+
+    entries = entries.filter(line => !isBracketHeaderLine(line));
+
+    return {
+      activity,
+      division: null,
+      classes: [{
+        name: className || 'Untitled',
+        entries: entries.map(e => makeActivityEntry(e, scored))
+      }]
+    };
+  }).filter(x => x.activity && x.classes[0].entries.length);
+}
+function scoreEntry(name) {
+  const maxScore = Math.max(1, parseInt($('maxScore').value, 10) || 100);
+  const minScore = Math.floor(maxScore / 3);
+  return { name, score: Math.floor(Math.random() * (maxScore - minScore + 1)) + minScore };
+}
+function activityPoints(place) {
+  if (String(place || '').toLowerCase() === 'best in field') return SS_CONFIG.placementPoints[1] || 5;
+  return SS_CONFIG.placementPoints[Number(place)] || 0;
+}
+function activityRecord(records, showData, activity, className, entry, place, awardName) {
+  const selectedKey =
+    showData.activityKey && showData.activityKey !== '__MIXED__'
+      ? showData.activityKey
+      : resolveActivityKeyFromName(activity, showData.species);
+
+  records.push({
+    show_name: showData.showName,
+    show_type: 'activity',
+    show_scope: getShowScope(showData.showType),
+    activity_key: selectedKey || null,
+    class_name: activity + (className ? ' - ' + className : ''),
+    placement: awardName || String(place),
+    animal_name: entry.name || entry,
+    points: awardName ? 0 : activityPoints(place),
+    score: entry && entry.score !== undefined ? Number(entry.score) : null,
+    max_score: entry && entry.score !== undefined ? Math.max(1, parseInt($('maxScore').value, 10) || 100) : null,
+    passed: entry && typeof entry.passed === 'boolean' ? entry.passed : null,
+    score_label: entry && entry.scoreLabel ? entry.scoreLabel : null
+  });
+}
+function isPackActivityClass(className) {
+  return /\b(pack|team|brace)\b/i.test(String(className || ''));
+}
+function splitPackActivityMembers(entry, className) {
+  const rawName = String(entry && entry.name ? entry.name : entry || '').trim();
+  if (!rawName || !isPackActivityClass(className)) return [entry];
+
+  /*
+    TEAM / PACK / BRACE ENTRY FORMAT
+    --------------------------------
+    A team line is:
+      Animal 1 - Animal 2 - Animal 3 - Owner
+
+    The old splitter only worked reliably when the class heading itself contained
+    "team", "pack", or "brace". Some activity formats identify the event as a team
+    event elsewhere, leaving the class name without that word. In that case the
+    whole combined string reached findAnimal(), which could produce the
+    "duplicate exact registry name" skips seen in team uploads.
+
+    Once this function has been called for a pack/team-aware record, split every
+    spaced-hyphen segment except the last one into an individual animal. The last
+    segment remains the owner.
+  */
+  const parts = rawName.split(/\s+-\s+/).map(cleanLine).filter(Boolean);
+  if (parts.length < 3) return [entry];
+
+  const owner = parts[parts.length - 1];
+  const members = parts.slice(0, -1);
+
+  return members.map(memberName => ({
+    name: memberName + ' - ' + owner,
+    score: entry && entry.score !== undefined ? entry.score : undefined,
+    passed: entry && typeof entry.passed === 'boolean' ? entry.passed : undefined,
+    scoreLabel: entry && entry.scoreLabel ? entry.scoreLabel : undefined,
+    sourcePackName: rawName
+  }));
+}
+function activityRecordForEntry(records, showData, activity, className, entry, place, awardName, splitPackMembers) {
+  const teamAware =
+    !!splitPackMembers ||
+    isPackActivityClass(className) ||
+    isPackActivityClass(activity);
+
+  let recordEntries = [entry];
+
+  if (teamAware) {
+    const rawName = String(entry && entry.name ? entry.name : entry || '').trim();
+    const parts = rawName.split(/\s+-\s+/).map(cleanLine).filter(Boolean);
+
+    if (parts.length >= 3) {
+      const owner = parts[parts.length - 1];
+      recordEntries = parts.slice(0, -1).map(memberName => ({
+        name: memberName + ' - ' + owner,
+        score: entry && entry.score !== undefined ? entry.score : undefined,
+        passed: entry && typeof entry.passed === 'boolean' ? entry.passed : undefined,
+        scoreLabel: entry && entry.scoreLabel ? entry.scoreLabel : undefined,
+        sourcePackName: rawName
+      }));
+    }
+  }
+
+  recordEntries.forEach(recordEntry => {
+    activityRecord(records, showData, activity, className, recordEntry, place, awardName);
+  });
+}
+function bestInFieldFinalistsFromEntry(entry, className) {
+  /*
+    BEST IN FIELD TEAM SAFETY
+    -------------------------
+    Team/pack/brace winners must be expanded into their individual animals before
+    they enter the Best in Field final.
+
+    Do not rely only on the class heading containing "team", "pack", or "brace".
+    Some SS team formats use a normal-looking class heading even though the entry
+    line itself contains multiple animals:
+      Animal 1 - Animal 2 - Animal 3 - Owner
+
+    A normal individual entry has only:
+      Animal - Owner
+    so 3+ spaced-hyphen parts is a safe signal that this is a multi-animal entry.
+  */
+  const rawName = String(entry && entry.name ? entry.name : entry || '').trim();
+  const parts = rawName.split(/\s+-\s+/).map(cleanLine).filter(Boolean);
+
+  if (parts.length < 3) return [entry];
+
+  const owner = parts[parts.length - 1];
+
+  return parts.slice(0, -1).map(memberName => ({
+    name: memberName + ' - ' + owner,
+    score: entry && entry.score !== undefined ? entry.score : undefined,
+    passed: entry && typeof entry.passed === 'boolean' ? entry.passed : undefined,
+    scoreLabel: entry && entry.scoreLabel ? entry.scoreLabel : undefined,
+    sourcePackName: rawName
+  }));
+}
+function splitBalancedActivityGroups(entries) {
+  // Divided activity classes split once they reach 10 entries.
+  // Groups stay as close to even as possible: 10 = 5/5, 11 = 6/5, 21 = 7/7/7.
+  const total = entries.length;
+  if (total < 10) return [entries];
+
+  const groupCount = Math.max(2, Math.ceil(total / 10));
+  const baseSize = Math.floor(total / groupCount);
+  const extra = total % groupCount;
+  const groups = [];
+  let index = 0;
+
+  for (let i = 0; i < groupCount; i++) {
+    const size = baseSize + (i < extra ? 1 : 0);
+    groups.push(entries.slice(index, index + size));
+    index += size;
+  }
+
+  return groups.filter(g => g.length);
+}
+function activityClassSortValue(name) {
+  const s = cleanLine(name).toLowerCase();
+  if (s === 'untitled') return 0;
+  const titleMatch = s.match(/^(.+?)\s+(class|division|level)\s*(\d+)?/i);
+  if (titleMatch) return 10 + (parseInt(titleMatch[3] || '0', 10) || 0);
+  const m = s.match(/(\d+)/);
+  return m ? 20 + parseInt(m[1], 10) : 999;
+}
+function activityEntrySortName(entry) {
+  return removeDecorations(entry && entry.name ? entry.name : entry).toLowerCase();
+}
+function mergeActivityBlocks(activityBlocks) {
+  const merged = [];
+
+  activityBlocks.forEach(block => {
+    const activityName = cleanLine(block.activity);
+    const divisionName = block.division ? cleanLine(block.division) : null;
+    let activity = merged.find(a => a.activity.toLowerCase() === activityName.toLowerCase() && String(a.division || '').toLowerCase() === String(divisionName || '').toLowerCase());
+    if (!activity) {
+      activity = { activity: activityName, division: divisionName, classes: [] };
+      merged.push(activity);
+    }
+
+    (block.classes || []).forEach(cls => {
+      const className = cleanLine(cls.name || 'Untitled') || 'Untitled';
+      let targetClass = activity.classes.find(c => c.name.toLowerCase() === className.toLowerCase());
+      if (!targetClass) {
+        targetClass = { name: className, entries: [] };
+        activity.classes.push(targetClass);
+      }
+      targetClass.entries.push(...(cls.entries || []));
+    });
+  });
+
+  merged.forEach(activity => {
+    activity.classes.sort((a,b) => activityClassSortValue(a.name) - activityClassSortValue(b.name) || a.name.localeCompare(b.name));
+    activity.classes.forEach(cls => {
+      cls.entries.sort((a,b) => activityEntrySortName(a).localeCompare(activityEntrySortName(b)));
+    });
+  });
+
+  return merged;
+}
+function herdingEntryLines(rawData) {
+  return String(rawData || '')
+    .split(/\r?\n/)
+    .map(cleanLine)
+    .filter(Boolean)
+    .filter(line => !isBracketHeaderLine(line))
+    .filter(line => looksLikeAnimalEntry(line));
+}
+function normalizeHerdingInputLine(value) {
+  return String(value || '')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[‐‑‒–—―]/g, '-')
+    .replace(/\[\/?b\]/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeHerdingDivision(value) {
+  const key = cleanLine(value).toLowerCase();
+
+  if (/^pupp(?:y|ies)$/.test(key) || key === 'puppy stakes') return 'Puppy';
+  if (/^beginners?$/.test(key) || key === 'started' || key === 'beginner stakes') return 'Beginners';
+  if (key === 'advanced' || key === 'advanced stakes') return 'Advanced';
+  if (key === 'expert' || key === 'expert stakes') return 'Expert';
+  if (/^champ(?:ionship)?$/.test(key) || key === 'championship stakes') return 'Championship';
+
+  return null;
+}
+
+function parseHerdingStakesClasses(rawData) {
+  const lines = String(rawData || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(normalizeHerdingInputLine);
+
+  const classes = [];
+  const classesByKey = new Map();
+  let current = null;
+
+  lines.forEach(line => {
+    if (!line) return;
+
+    if (line.includes(' - ')) {
+      if (current) current.entries.push(line);
+      return;
+    }
+
+    const words = line.split(' ').filter(Boolean);
+    if (words.length < 2) {
+      current = null;
+      return;
+    }
+
+    const enteredStock = words.pop();
+    const enteredDivision = words.join(' ').trim();
+
+    const stockMap = {
+      sheep: 'Sheep',
+      cattle: 'Cattle',
+      duck: 'Ducks',
+      ducks: 'Ducks',
+      reindeer: 'Reindeer'
+    };
+
+    const stock = stockMap[enteredStock.toLowerCase()];
+    const division = normalizeHerdingDivision(enteredDivision);
+
+    if (!stock || !division) {
+      current = null;
+      return;
+    }
+
+    const classKey = division.toLowerCase() + '|' + stock.toLowerCase();
+    current = classesByKey.get(classKey) || null;
+
+    if (!current) {
+      current = {
+        className: division + ' ' + stock,
+        division,
+        stock,
+        entries: []
+      };
+
+      classesByKey.set(classKey, current);
+      classes.push(current);
+    }
+  });
+
+  return classes.filter(classBlock => classBlock.entries.length > 0);
+}
+
+function runHerdingClub(rawData, showData) {
+  const eventType = showData.herdingEventType || 'instinct';
+  const lines = [];
+  const records = [];
+
+  if (eventType === 'instinct') {
+    const rawEntries = herdingEntryLines(rawData);
+    if (!rawEntries.length) throw new Error('No valid Instinct Testing entries found. Use: Animal Name - Owner');
+
+    const activity = 'Herding Instinct Testing';
+    const className = 'Instinct Test';
+    addLine(lines, bold(activity));
+    addLine(lines, '');
+    addLine(lines, bold(className));
+
+    shuffle(rawEntries).forEach((name, index) => {
+      const passed = Math.random() < 0.5;
+      const entry = { name, passed };
+      addLine(lines, (index + 1) + '. ' + name + ' - ' + (passed ? 'Pass' : 'Fail'));
+      activityRecord(records, showData, activity, className, entry, index + 1, passed ? 'Pass' : 'Fail');
+      const record = records[records.length - 1];
+      record.activity_key = 'herding';
+      record.class_name = 'Herding - Instinct Test';
+      record.points = 0;
+      record.score = null;
+      record.max_score = null;
+      record.passed = passed;
+      record.score_label = passed ? 'Pass' : 'Fail';
+    });
+
+    return { lines, records };
+  }
+
+  const classes = parseHerdingStakesClasses(rawData);
+  if (!classes.length) {
+    throw new Error(
+      'No valid Stakes classes found. Use one of: Puppy, Beginners, Advanced, Expert, or Championship + Sheep/Cattle/Ducks/Reindeer. Example: Beginners Sheep'
+    );
+  }
+
+  const activity = 'Herding';
+  const maxScore = 300;
+  const minScore = 100;
+  const qualifyingScore = 240;
+
+  addLine(lines, bold('Herding Stakes'));
+  addLine(lines, '');
+
+  classes.forEach((classBlock, classIndex) => {
+    if (classIndex > 0) addLine(lines, '');
+    addLine(lines, bold(classBlock.className));
+
+    const entries = classBlock.entries
+      .map(name => ({
+        name,
+        score: Math.floor(Math.random() * (maxScore - minScore + 1)) + minScore
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    entries.forEach((entry, index) => {
+      const place = index + 1;
+      const qualified = entry.score >= qualifyingScore;
+
+      addLine(
+        lines,
+        placementLabel(place) +
+          ' ' +
+          entry.name +
+          ' - ' +
+          entry.score +
+          (qualified ? ' - Qualified' : '')
+      );
+
+      activityRecord(
+        records,
+        showData,
+        activity,
+        classBlock.className,
+        entry,
+        place,
+        null
+      );
+
+      const record = records[records.length - 1];
+      record.activity_key = 'herding';
+      record.class_name = 'Herding - ' + classBlock.division + ' ' + classBlock.stock;
+      record.score = entry.score;
+      record.max_score = maxScore;
+      record.passed = qualified;
+      record.score_label = qualified ? 'Qualified' : 'Not Qualified';
+    });
+  });
+
+  return { lines, records };
+}
+
+
+
+
+function parseEnduranceSimpleClasses(rawData) {
+  const lines = String(rawData || '')
+    .replace(/\r\n?/g,'\n')
+    .split('\n')
+    .map(cleanLine);
+
+  const classes = [];
+  let current = null;
+
+  lines.forEach(line => {
+    if (!line) return;
+
+    if (line.includes(' - ')) {
+      if (!current) {
+        current = { name:'Endurance', entries:[] };
+        classes.push(current);
+      }
+      current.entries.push(line);
+      return;
+    }
+
+    current = { name: line, entries: [] };
+    classes.push(current);
+  });
+
+  return classes.filter(cls => cls.entries.length);
+}
+
+function enduranceRecordBase(showData, horseName, className, place, points) {
+  return {
+    show_name: showData.showName,
+    show_type: 'activity',
+    show_scope: 'association',
+    association_key: 'endurance_club',
+    association_event_type: showData.associationEventType,
+    activity_key: 'endurance',
+    class_name: className,
+    placement: String(place),
+    animal_name: horseName,
+    points: Number(points || 0),
+    score: null,
+    max_score: null,
+    passed: null,
+    score_label: null,
+    endurance_completed: true,
+    endurance_season: new Date().getFullYear()
+  };
+}
+
+function runEnduranceProspects(rawData, showData) {
+  const classes = parseEnduranceSimpleClasses(rawData);
+  if (!classes.length) throw new Error('No Prospect classes found.');
+
+  const lines = [];
+  const records = [];
+
+  addLine(lines,bold('Endurance Club Prospect Classes'));
+  addLine(lines,'');
+
+  classes.forEach((cls, ci) => {
+    if (ci) addLine(lines,'');
+    addLine(lines,bold(cls.name));
+
+    shuffle(cls.entries.slice()).forEach((horse,index) => {
+      const place=index+1;
+      const points=SS_CONFIG.placementPoints[place] || 0;
+      addLine(lines, placementLabel(place) + ' ' + horse);
+
+      records.push({
+        show_name: showData.showName,
+        show_type: 'conformation',
+        show_scope: 'association',
+        association_key: 'endurance_club',
+        association_event_type: 'prospect',
+        activity_key: null,
+        class_name: 'Endurance Prospect - ' + cls.name,
+        placement: String(place),
+        animal_name: horse,
+        points,
+        endurance_completed: false,
+        endurance_winnings: 0,
+        endurance_season: new Date().getFullYear()
+      });
+    });
+  });
+
+  return {lines,records};
+}
+
+function runEnduranceUnrated(rawData,showData){
+  const classes=parseEnduranceSimpleClasses(rawData);
+  if(!classes.length) throw new Error('No unrated Endurance races found.');
+
+  const lines=[],records=[];
+  const fallbackDistance=Math.max(0,Number($('enduranceUnratedDistance')?.value||0));
+
+  addLine(lines,bold('Endurance Club — Unrated Races'));
+  addLine(lines,'');
+
+  classes.forEach((cls,ci)=>{
+    if(ci) addLine(lines,'');
+    addLine(lines,bold(cls.name));
+
+    const classDistanceMatch=cls.name.match(/(\d[\d,]*)\s*km/i);
+    const distance=classDistanceMatch
+      ? Number(classDistanceMatch[1].replace(/,/g,''))
+      : fallbackDistance;
+
+    shuffle(cls.entries.slice()).forEach((horse,index)=>{
+      const place=index+1;
+      const points=SS_CONFIG.placementPoints[place]||0;
+      const winnings=endurancePrizeForPlace(place);
+
+      addLine(lines,
+        placementLabel(place)+' '+horse+
+        (winnings ? ' - $'+winnings.toLocaleString() : '')
+      );
+
+      const record=enduranceRecordBase(showData,horse,'Endurance - '+cls.name,place,points);
+      Object.assign(record,{
+        association_event_type:'unrated',
+        endurance_race_key:'unrated_'+cleanLine(cls.name).toLowerCase().replace(/[^a-z0-9]+/g,'_'),
+        endurance_race_name:cls.name,
+        endurance_grade:null,
+        endurance_conference:null,
+        endurance_circuit:null,
+        endurance_series:null,
+        endurance_distance_km:distance,
+        endurance_winnings:winnings
+      });
+      records.push(record);
+    });
+  });
+
+  return {lines,records};
+}
+
+function standardEndurancePoints(records){
+  return (records||[])
+    .filter(r=>cleanLine(r.activity_key).toLowerCase()==='endurance')
+    .reduce((sum,r)=>sum+Number(r.points||r.calculated_points||0),0);
+}
+
+function enduranceTitleTierFromText() {
+  const text = Array.from(arguments)
+    .filter(Boolean)
+    .map(value => String(value))
+    .join(' ')
+    .toUpperCase();
+
+  // Multiplier titles such as EnO2 / EnJ3 / EnN4 count as their base tier.
+  if (/(^|[^A-Z0-9])ENO\d*(?=$|[^A-Z0-9])/i.test(text)) return 3;
+  if (/(^|[^A-Z0-9])ENJ\d*(?=$|[^A-Z0-9])/i.test(text)) return 2;
+  if (/(^|[^A-Z0-9])ENN\d*(?=$|[^A-Z0-9])/i.test(text)) return 1;
+  return 0;
+}
+
+function enduranceEligibilityTier(rawEntry, animal, endurancePoints) {
+  const titleTier = enduranceTitleTierFromText(
+    rawEntry,
+    animal && animal.name,
+    animal && animal.normalized_name
+  );
+
+  // Keep historical-point qualification working too.
+  const pointsTier =
+    endurancePoints >= 125 ? 3 :
+    endurancePoints >= 50 ? 2 :
+    endurancePoints >= 25 ? 1 :
+    0;
+
+  return Math.max(titleTier, pointsTier);
+}
+
+function passedPlacement(r){
+  const m=String(r.placement||'').match(/\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+async function checkEnduranceRaceEligibility(rawData,race){
+  const supabase=getSupabase();
+  if(!supabase) throw new Error('Supabase is not ready.');
+
+  const animalMap=await loadAnimalsMap(supabase);
+  const entries=herdingEntryLines(rawData);
+  const accepted=[],declined=[];
+
+  for(const rawEntry of entries){
+    const match=findAnimal(rawEntry,animalMap);
+    if(match.status!=='matched'){
+      declined.push({entry:rawEntry,reason:match.status==='ambiguous'?'Duplicate exact registry name':'Exact registry animal not found'});
+      continue;
+    }
+
+    const animal=match.animal;
+    if(cleanLine(animal.species).toLowerCase()!=='horse'){
+      declined.push({entry:rawEntry,reason:'Endurance Club is horses only'});
+      continue;
+    }
+
+    const {data,error}=await supabase
+      .from('show_records')
+      .select('*')
+      .eq('animal_id',animal.id);
+
+    if(error) throw new Error('Eligibility check failed for '+animal.name+': '+error.message);
+
+    const prior=data||[];
+    const endurancePoints=standardEndurancePoints(prior);
+    const enduranceTier=enduranceEligibilityTier(rawEntry,animal,endurancePoints);
+
+    // Endurance Club Stakes eligibility:
+    // Grade III: no title required
+    // Grade II: EnN or higher
+    // Grade I: EnJ or higher
+    //
+    // Eligibility accepts either the visible Endurance title (including
+    // multipliers such as EnN2 / EnJ2 / EnO2) OR the historical standard
+    // Endurance points that would have earned that tier.
+    const grade = String(race.grade || '').toUpperCase().trim();
+
+    if (grade === 'II' && enduranceTier < 1) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Grade II Stakes require EnN or higher'
+      });
+      continue;
+    }
+
+    if (grade === 'I' && enduranceTier < 2) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Grade I Stakes require EnJ or higher'
+      });
+      continue;
+    }
+
+    if(race.key==='world_the_western_finals'){
+      const qualified=prior.some(r =>
+        cleanLine(r.association_key).toLowerCase()==='endurance_club' &&
+        cleanLine(r.endurance_conference).toLowerCase() === 'western' &&
+        passedPlacement(r)===1 &&
+        r.endurance_grade
+      );
+      if(!qualified){
+        declined.push({entry:rawEntry,reason:'Requires a win in a Western Endurance Club stakes race'});
+        continue;
       }
     }
 
-    // Order real show records by their parent upload, not event_date. This keeps
-    // newly uploaded shows at the top and keeps named series together.
-    const uploadMap = await loadUploadMetadataForRecords(supabase, allRows);
-    allRows = sortRecordsByUploadAndSeries(allRows, uploadMap);
+    if(race.key==='world_the_eastern_challenge'){
+      const qualified=prior.some(r =>
+        cleanLine(r.association_key).toLowerCase()==='endurance_club' &&
+        ['eastern','both'].includes(cleanLine(r.endurance_conference).toLowerCase()) &&
+        passedPlacement(r)===1 &&
+        r.endurance_grade
+      );
+      if(!qualified){
+        declined.push({entry:rawEntry,reason:'Requires a win in an Eastern Endurance Club stakes race'});
+        continue;
+      }
+    }
 
-    const [titleRules, activityRules, activityTypes, totalRules, herdingRules] = await Promise.all([
-      getTableRows("title_rules"),
-      getTableRows("activity_title_rules"),
-      getTableRows("activity_types"),
-      getTableRows("total_award_activity_rules"),
-      getTableRows("herding_title_rules")
-    ]);
+    if(race.key==='world_the_invitational'){
+      const gradeWinner=prior.some(r =>
+        cleanLine(r.association_key).toLowerCase()==='endurance_club' &&
+        ['i','ii'].includes(cleanLine(r.endurance_grade).toLowerCase()) &&
+        passedPlacement(r)===1
+      );
 
-    // ROM / ROMX / SprROM / SprROMX depend on offspring conformation achievement.
-    // Load the canonical conformation rules first, then calculate breeding awards
-    // from those live CH. / SprWCH. thresholds.
-    animal._breedingAwards = await loadBreedingAwardData(animal, titleRules);
+      const finalTopThree=prior.some(r =>
+        cleanLine(r.endurance_series).toLowerCase()==='conference_final' &&
+        (passedPlacement(r)||99)<=3
+      );
 
-    content.innerHTML = renderRecords(
-      allRows || [],
-      animal,
-      titleRules,
-      activityRules,
-      activityTypes,
-      totalRules,
-      herdingRules
+      const enOpen=enduranceEligibilityTier(rawEntry,animal,endurancePoints)>=3;
+
+      const seriesWins={gemstone:new Set(),crystal:new Set()};
+      prior.forEach(r=>{
+        if(passedPlacement(r)!==1)return;
+        const s=cleanLine(r.endurance_series).toLowerCase();
+        if(seriesWins[s])seriesWins[s].add(r.endurance_race_key);
+      });
+
+      const fullSeries=seriesWins.gemstone.size>=6 || seriesWins.crystal.size>=6;
+
+      if(!(gradeWinner||finalTopThree||enOpen||fullSeries)){
+        declined.push({entry:rawEntry,reason:'Invitational requires a Grade I/II stakes win, top 3 in a conference final, EnO, or a full World Tour series win'});
+        continue;
+      }
+    }
+
+    accepted.push({rawEntry,animal});
+  }
+
+  return {accepted,declined};
+}
+
+async function runEnduranceRated(rawData,showData){
+  const race=SS_ENDURANCE_RACES.find(row=>row.key===$('enduranceRaceKey')?.value);
+  if(!race) throw new Error('Select an Endurance Club race.');
+
+  const {accepted,declined}=await checkEnduranceRaceEligibility(rawData,race);
+  if(!accepted.length){
+    throw new Error('No eligible entries. '+declined.map(x=>x.entry+': '+x.reason).join('; '));
+  }
+
+  const lines=[],records=[];
+  addLine(lines,bold(race.name));
+  addLine(lines,
+    [
+      race.grade ? 'Grade '+race.grade : null,
+      race.distance_km ? race.distance_km+' km' : null,
+      race.conference || null,
+      race.circuit || null
+    ].filter(Boolean).join(' • ')
+  );
+  addLine(lines,'');
+
+  const ranked=shuffle(accepted.slice());
+
+  ranked.forEach((item,index)=>{
+    const place=index+1;
+    const points=SS_CONFIG.placementPoints[place]||0;
+    const winnings=endurancePrizeForPlace(place);
+
+    addLine(lines,
+      placementLabel(place)+' '+item.rawEntry+
+      (winnings ? ' - $'+winnings.toLocaleString() : '')
     );
 
-    wireShowRecordTabs();
+    const record=enduranceRecordBase(showData,item.rawEntry,'Endurance - '+race.name,place,points);
+    Object.assign(record,{
+      association_event_type:'rated',
+      endurance_race_key:race.key,
+      endurance_race_name:race.name,
+      endurance_grade:race.grade||null,
+      endurance_conference:race.conference||null,
+      endurance_circuit:race.circuit||null,
+      endurance_series:race.series||null,
+      endurance_distance_km:Number(race.distance_km||0),
+      endurance_winnings:winnings
+    });
+    records.push(record);
+  });
 
+  if(declined.length){
+    addLine(lines,'');
+    addLine(lines,bold('Declined Entries'));
+    declined.forEach(item=>addLine(lines,item.entry+' - DECLINED: '+item.reason));
+  }
+
+  return {lines,records};
+}
+
+async function runEnduranceClub(rawData,showData){
+  const mode=showData.associationEventType||showData.specialtyEventType||'prospect';
+  if(mode==='prospect') return runEnduranceProspects(rawData,showData);
+  if(mode==='unrated') return runEnduranceUnrated(rawData,showData);
+  if(mode==='rated') return await runEnduranceRated(rawData,showData);
+  throw new Error('Unknown Endurance Club event type.');
+}
+
+
+function huntingPick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function huntingLevelDifficulty(levelKey) {
+  return levelKey === 'masters' ? 2 : levelKey === 'expert' ? 1 : 0;
+}
+
+function huntingScenario(levelKey) {
+  const difficulty = huntingLevelDifficulty(levelKey);
+
+  const terrain = huntingPick(SS_HUNTING_TERRAINS);
+  const weather = huntingPick(SS_HUNTING_WEATHER);
+
+  const scentPool = difficulty === 0
+    ? SS_HUNTING_SCENT.slice(0,3)
+    : difficulty === 1
+      ? SS_HUNTING_SCENT.slice(1,5)
+      : SS_HUNTING_SCENT.slice(2);
+
+  const distractionPool = difficulty === 0
+    ? SS_HUNTING_DISTRACTIONS.slice(0,2)
+    : difficulty === 1
+      ? SS_HUNTING_DISTRACTIONS.slice(0,4)
+      : SS_HUNTING_DISTRACTIONS;
+
+  const quarryPool = difficulty === 0
+    ? SS_HUNTING_QUARRY_DIFFICULTY.slice(0,2)
+    : difficulty === 1
+      ? SS_HUNTING_QUARRY_DIFFICULTY.slice(1,4)
+      : SS_HUNTING_QUARRY_DIFFICULTY.slice(2);
+
+  return {
+    terrain,
+    weather,
+    scent: huntingPick(scentPool),
+    distraction: huntingPick(distractionPool),
+    quarry: huntingPick(quarryPool)
+  };
+}
+
+function huntingConditionModifier(scenario, category, levelKey) {
+  let mod = 0;
+  const text = (scenario.terrain + ' ' + scenario.weather + ' ' + scenario.scent + ' ' +
+    scenario.distraction + ' ' + scenario.quarry + ' ' + category).toLowerCase();
+
+  if (/fresh strong scent|recent rainfall/.test(text) && /scent|search|location|tracking|line/.test(text)) mod += 2;
+  if (/old scent|contaminated scent|crossing scent|broken scent/.test(text) && /scent|search|location|tracking|line/.test(text)) mod -= 3;
+  if (/heavy rain|moderate wind/.test(text) && /scent|marking|location/.test(text)) mod -= 2;
+  if (/dense brush|rocky ground|marsh/.test(text) && /speed|agility|pursuit|retrieve/.test(text)) mod -= 2;
+  if (/open field|pasture/.test(text) && /speed|pursuit|marking|search/.test(text)) mod += 1;
+  if (/wildlife distraction|other dogs|competing scent|human activity|livestock/.test(text) && /control|cooperation|steadiness|persistence/.test(text)) mod -= 2;
+  if (levelKey === 'masters') mod -= 1;
+
+  return mod;
+}
+
+function huntingCategoryScore(levelKey, scenario, category) {
+  const ranges = {
+    beginners: [18, 39],
+    expert: [20, 39],
+    masters: [22, 40]
+  };
+  const [min,max] = ranges[levelKey] || ranges.beginners;
+  const base = min + Math.floor(Math.random() * (max - min + 1));
+  return Math.max(0, Math.min(40, base + huntingConditionModifier(scenario, category, levelKey)));
+}
+
+function huntingDqReason(familyKey, levelKey) {
+  const generic = [
+    'Loss of handler control',
+    'Unsafe working behaviour',
+    'Abandoned the search',
+    'Failure to engage the working scenario'
+  ];
+
+  const family = {
+    flushing: ['Broke steadiness and could not be recovered'],
+    retrieving: ['Refused the retrieve after locating quarry'],
+    trailing: ['Abandoned the scent line completely'],
+    treeing_baying: ['Failed to maintain safe bay / tree work'],
+    ratting: ['Unsafe loss of control in the working area'],
+    versatile: ['Failed multiple required phases of the test'],
+    coursing: ['Broke off pursuit and failed to re-engage'],
+    falconry: ['Unsafe interference with the working bird'],
+    pack_hunting: ['Unsafe pack interference / loss of pack control'],
+    catch_dogs: ['Unsafe catch / failed controlled release'],
+    tolling: ['Failed to engage or sustain the tolling sequence'],
+    puffin_hunting: ['Failed the den / crevice search or controlled retrieval']
+  }[familyKey] || [];
+
+  const chance = levelKey === 'masters' ? 0.07 : levelKey === 'expert' ? 0.05 : 0.03;
+  if (Math.random() >= chance) return null;
+  return huntingPick(generic.concat(family));
+}
+
+async function huntingPriorQualifications(supabase, animalId, family, specialization) {
+  const { data, error } = await supabase
+    .from('show_records')
+    .select('hunting_family,hunting_specialization,hunting_level,passed,association_key')
+    .eq('animal_id', animalId)
+    .eq('association_key', 'hunting_club')
+    .eq('hunting_family', family)
+    .eq('hunting_specialization', specialization);
+
+  if (error) throw new Error('Could not check Hunting Club title eligibility: ' + error.message);
+
+  const counts = { beginners:0, expert:0, masters:0 };
+  (data || []).forEach(record => {
+    if (record.passed === true && counts[record.hunting_level] !== undefined) {
+      counts[record.hunting_level]++;
+    }
+  });
+  return counts;
+}
+
+async function runHuntingClub(rawData, showData) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready.');
+
+  const familyKey = $('huntingFamily')?.value || 'flushing';
+  const specializationKey = $('huntingSpecialization')?.value || 'pheasant';
+  const levelKey = $('huntingLevel')?.value || 'beginners';
+
+  const family = SS_HUNTING_FIELD_TESTS[familyKey];
+  const specialization = family?.specializations?.[specializationKey];
+  const level = SS_HUNTING_LEVELS[levelKey];
+
+  if (!family || !specialization || !level) {
+    throw new Error('Choose a Hunting Field Test family, specialization, and level.');
+  }
+
+  const animalMap = await loadAnimalsMap(supabase);
+  const entries = herdingEntryLines(rawData);
+
+  if (!entries.length) throw new Error('No Hunting Field Test entries found.');
+
+  const lines = [];
+  const records = [];
+  const declined = [];
+
+  addLine(lines, bold('Hunting Club Field Test'));
+  addLine(lines, bold(level.label + ' ' + family.label + ' — ' + specialization.label));
+  addLine(lines, 'Qualification: ' + level.passScore + '/200 overall • minimum ' +
+    level.categoryMinimum + '/40 in every category');
+  addLine(lines, '');
+
+  for (const rawEntry of entries) {
+    const match = findAnimal(rawEntry, animalMap);
+
+    if (match.status !== 'matched') {
+      declined.push({
+        entry: rawEntry,
+        reason: match.status === 'ambiguous'
+          ? 'Duplicate exact registry name'
+          : 'Exact registry animal not found'
+      });
+      continue;
+    }
+
+    const animal = match.animal;
+
+    if (cleanLine(animal.species).toLowerCase() !== 'dog') {
+      declined.push({ entry: rawEntry, reason:'Hunting Club Field Tests are dogs only' });
+      continue;
+    }
+
+    // Breed-restricted historical field tests.
+    if (Array.isArray(family.eligibleBreeds) && family.eligibleBreeds.length) {
+      const animalBreed = cleanLine(animal.breed).toLowerCase();
+      const eligible = family.eligibleBreeds.some(breed =>
+        cleanLine(breed).toLowerCase() === animalBreed
+      );
+
+      if (!eligible) {
+        declined.push({
+          entry: rawEntry,
+          reason: family.label + ' is limited to ' + family.eligibleBreeds.join(' and ')
+        });
+        continue;
+      }
+    }
+
+    const prior = await huntingPriorQualifications(
+      supabase, animal.id, familyKey, specializationKey
+    );
+
+    if (levelKey === 'expert' && prior.beginners < SS_HUNTING_LEVELS.beginners.titleQs) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Requires the Beginners ' + family.label + ' — ' + specialization.label + ' title'
+      });
+      continue;
+    }
+
+    if (levelKey === 'masters' && prior.expert < SS_HUNTING_LEVELS.expert.titleQs) {
+      declined.push({
+        entry: rawEntry,
+        reason: 'Requires the Expert ' + family.label + ' — ' + specialization.label + ' title'
+      });
+      continue;
+    }
+
+    const scenario = huntingScenario(levelKey);
+    const scores = family.categories.map(category => ({
+      category,
+      score: huntingCategoryScore(levelKey, scenario, category)
+    }));
+
+    const total = scores.reduce((sum,row) => sum + row.score, 0);
+    const categoryPass = scores.every(row => row.score >= level.categoryMinimum);
+    const dqReason = huntingDqReason(familyKey, levelKey);
+    const qualified = !dqReason && total >= level.passScore && categoryPass;
+
+    addLine(lines, bold(rawEntry));
+    addLine(lines,
+      'Scenario: ' + scenario.terrain + ' • ' + scenario.weather + ' • ' +
+      scenario.scent + ' • ' + scenario.distraction + ' • ' + scenario.quarry
+    );
+    scores.forEach(row => addLine(lines, row.category + ': ' + row.score + '/40'));
+
+    if (dqReason) {
+      addLine(lines, bold(total + '/200 — DQ'));
+      addLine(lines, 'DQ: ' + dqReason);
+    } else {
+      addLine(lines, bold(total + '/200 — ' + (qualified ? 'QUALIFIED' : 'NOT QUALIFIED')));
+      if (!categoryPass) {
+        const failed = scores
+          .filter(row => row.score < level.categoryMinimum)
+          .map(row => row.category)
+          .join(', ');
+        addLine(lines, 'Minimum category requirement not met: ' + failed);
+      }
+    }
+    addLine(lines, '');
+
+    records.push({
+      show_name: showData.showName,
+      show_type: 'activity',
+      show_scope: 'association',
+      association_key: 'hunting_club',
+      association_event_type: 'field_test',
+      activity_key: null,
+      class_name: 'Hunting Field Test - ' + family.label + ' - ' + specialization.label + ' - ' + level.label,
+      placement: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
+      animal_name: rawEntry,
+      points: 0,
+      score: total,
+      max_score: 200,
+      passed: qualified,
+      score_label: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
+      hunting_family: familyKey,
+      hunting_specialization: specializationKey,
+      hunting_level: levelKey
+    });
+  }
+
+  if (declined.length) {
+    addLine(lines, bold('Declined Entries'));
+    declined.forEach(item => addLine(lines, item.entry + ' — DECLINED: ' + item.reason));
+  }
+
+  return { lines, records };
+}
+
+function tagAssociationRecords(result, associationKey, eventType) {
+  const tagged = result || { lines: [], records: [] };
+  (tagged.records || []).forEach(record => {
+    record.association_key = associationKey;
+    record.association_event_type = eventType;
+  });
+  return tagged;
+}
+
+function parseIcelandicBreeding(rawData) {
+  const lines = String(rawData || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map(cleanLine);
+
+  const classes = [];
+  let current = null;
+
+  lines.forEach(line => {
+    if (!line) return;
+
+    if (line.includes(' - ')) {
+      if (current) current.entries.push(line);
+      return;
+    }
+
+    // Historical IHASS breeding shows use Class 1A-4C and may include a
+    // description after the class code, e.g. "Class 2C: 5yo Mares".
+    // Accept those directly, while still allowing custom future class headings.
+    if (/^class\s+[1-4][abc](?:\s*[:.-]\s*.*)?$/i.test(line) || /^breeding\s+class\b/i.test(line)) {
+      current = { name: line, entries: [] };
+      classes.push(current);
+      return;
+    }
+
+    current = { name: line, entries: [] };
+    classes.push(current);
+  });
+
+  return classes.filter(cls => cls.entries.length);
+}
+
+function randomIcelandicBreedingScore() {
+  // Existing IHASS breeding-show design: 50.00-150.00.
+  return Number((Math.random() * 100 + 50).toFixed(2));
+}
+
+function runIcelandicBreeding(rawData, showData) {
+  const classes = parseIcelandicBreeding(rawData);
+  if (!classes.length) {
+    throw new Error('No valid IHASS Breeding Show classes found. Use a class heading followed by Animal Name - Owner entries.');
+  }
+
+  const lines = [];
+  const records = [];
+
+  addLine(lines, bold('IHASS Breeding Show'));
+  addLine(lines, '');
+
+  classes.forEach((cls, classIndex) => {
+    if (classIndex > 0) addLine(lines, '');
+    addLine(lines, bold(cls.name));
+
+    const ranked = cls.entries.map(animal => ({
+      animal,
+      score: randomIcelandicBreedingScore()
+    })).sort((a, b) => b.score - a.score);
+
+    ranked.forEach((horse, index) => {
+      const place = index + 1;
+      const certificate = horse.score >= 120;
+      const points = SS_CONFIG.placementPoints[place] || 0;
+
+      addLine(
+        lines,
+        placementLabel(place) + ' ' + horse.animal +
+        ' - ' + horse.score.toFixed(2) + '/150' +
+        (certificate ? ' - Breeding Stock Certificate' : '')
+      );
+
+      records.push({
+        show_name: showData.showName,
+        show_type: 'conformation',
+        show_scope: 'association',
+        association_key: 'ihass',
+        association_event_type: 'breeding',
+        activity_key: null,
+        class_name: 'IHASS Breeding Show - ' + cls.name,
+        placement: String(place),
+        animal_name: horse.animal,
+        points,
+        score: horse.score,
+        max_score: 150,
+        passed: certificate,
+        score_label: certificate ? 'Breeding Stock Certificate' : 'Breeding Score'
+      });
+    });
+  });
+
+  return { lines, records };
+}
+
+function runIcelandicClub(rawData, showData) {
+  // Keep IHASS routing completely independent from the other specialty systems.
+  // This prevents stale/hidden specialty controls from leaking a null object into
+  // the Icelandic runner when switching between association tabs.
+  const eventType = cleanLine(
+    showData && (
+      showData.associationEventType ||
+      showData.specialtyEventType ||
+      showData.herdingEventType
+    ) || 'halter'
+  ).toLowerCase();
+
+  if (eventType === 'halter') {
+    // Run through the normal conformation engine so every earned point also
+    // contributes to ordinary Show Standard conformation totals/titles.
+    const normalShowData = Object.assign({}, showData, {
+      showType: 'all-breed',
+      associationKey: 'ihass',
+      associationEventType: 'halter'
+    });
+
+    return tagAssociationRecords(
+      runConformation(rawData, normalShowData),
+      'ihass',
+      'halter'
+    );
+  }
+
+  if (eventType === 'gaiting') {
+    // IHASS gaiting classes are individual CLASSES inside the normal Gaiting
+    // activity. Keep the exact Icelandic class name for display/history, but
+    // force every generated record into the canonical Gaiting activity bucket.
+    //
+    // Examples:
+    // T1: Open Tölt
+    // T2: Open Loose Rein Tölt
+    // V1: Four-Gait Open
+    // F1: Five-Gait Open
+    // P1: Pace Race 250m
+    // P2: SpeedPass: Pace Race 100m with flying start
+    // PP1: Pace Test
+    const normalShowData = Object.assign({}, showData, {
+      showType: 'activity-divided',
+      activityKey: 'gaiting',
+      associationKey: 'ihass',
+      associationEventType: 'gaiting'
+    });
+
+    const result = runActivity(rawData, normalShowData);
+
+    (result.records || []).forEach(record => {
+      // Do NOT replace class_name: it must remain the exact entered IHASS class.
+      record.activity_key = 'gaiting';
+      record.association_key = 'ihass';
+      record.association_event_type = 'gaiting';
+      record.show_type = 'activity';
+    });
+
+    return result;
+  }
+
+  if (eventType === 'breeding') {
+    return runIcelandicBreeding(rawData, showData);
+  }
+
+  throw new Error('Unknown Icelandic Horse Club event type.');
+}
+
+async function loadTestingEligibilityContext(rawData, showData, eventType) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
+
+  const animalMap = await loadAnimalsMap(supabase);
+  const entries = herdingEntryLines(rawData);
+  if (!entries.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
+
+  const accepted = [], declined = [];
+
+  for (const rawEntry of entries) {
+    const match = findAnimal(rawEntry, animalMap);
+    if (match.status === 'not-found') { declined.push({entry:rawEntry,reason:'Exact registry animal not found'}); continue; }
+    if (match.status === 'ambiguous') { declined.push({entry:rawEntry,reason:'Duplicate exact registry name'}); continue; }
+
+    const animal=match.animal;
+    const species=cleanLine(animal.species).toLowerCase();
+    if (species !== cleanLine(showData.species).toLowerCase()) {
+      declined.push({entry:rawEntry,reason:'Registry species does not match selected species'}); continue;
+    }
+    if (eventType==='cgc' && species!=='dog') {
+      declined.push({entry:rawEntry,reason:'CGC is dogs only'}); continue;
+    }
+
+    const {data:prior,error}=await supabase.from('show_records')
+      .select('id,animal_id,class,activity_key,passed,score,score_label,event_date')
+      .eq('animal_id',animal.id).order('event_date',{ascending:true});
+    if(error) throw new Error('Eligibility check failed for '+animal.name+': '+error.message);
+    const records=prior||[];
+
+    if(eventType==='temperament'){
+      const attempted=records.some(r =>
+        cleanLine(r.activity_key).toLowerCase()==='temperament_test' ||
+        cleanLine(r.class).toLowerCase().includes('temperament test')
+      );
+      if(attempted){declined.push({entry:rawEntry,reason:'Temperament Test may only be attempted once'});continue;}
+    }
+
+    let cgcLevel=null;
+    if(eventType==='cgc'){
+      const levels=[
+        {key:'cgc',code:'CGC',label:'Canine Good Citizen'},
+        {key:'cgcb',code:'CGCB',label:'Canine Good Citizen Bronze'},
+        {key:'cgcs',code:'CGCS',label:'Canine Good Citizen Silver'},
+        {key:'cgcg',code:'CGCG',label:'Canine Good Citizen Gold'},
+        {key:'cgca',code:'CGCA',label:'Canine Good Citizen Advanced'},
+        {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
+      ];
+      const passed=new Set();
+      records.forEach(r=>{
+        if(r.passed!==true)return;
+        const key=cleanLine(r.activity_key).toLowerCase();
+        const cls=cleanLine(r.class).toLowerCase();
+        const lbl=cleanLine(r.score_label).toLowerCase();
+        levels.forEach(level=>{
+          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()) passed.add(level.key);
+        });
+      });
+      cgcLevel=levels.find(level=>!passed.has(level.key))||null;
+      if(!cgcLevel){declined.push({entry:rawEntry,reason:'All CGC levels already earned'});continue;}
+      const i=levels.findIndex(level=>level.key===cgcLevel.key);
+      if(i>0 && !passed.has(levels[i-1].key)){
+        declined.push({entry:rawEntry,reason:'Previous CGC level has not been earned'});continue;
+      }
+    }
+    accepted.push({rawEntry,animal,cgcLevel});
+  }
+  return {accepted,declined};
+}
+
+async function runTestingSystem(rawData,showData){
+  const eventType=showData.specialtyEventType||showData.herdingEventType||'temperament';
+
+  // Testing systems only understand these three events. Guard against stale
+  // specialty UI state so an association event such as IHASS 'breeding' can
+  // never fall through to the CGC branch and dereference a null level object.
+  if (!['temperament','therapy','cgc'].includes(eventType)) {
+    throw new Error('Invalid testing event "' + eventType + '". Re-select the specialty system and event.');
+  }
+
+  const {accepted,declined}=await loadTestingEligibilityContext(rawData,showData,eventType);
+  if(!accepted.length){
+    throw new Error('No eligible testing entries. '+declined.map(x=>x.entry+': '+x.reason).join('; '));
+  }
+
+  const lines=[],records=[];
+  const species=cleanLine(showData.species).toLowerCase();
+  const speciesSuffix=species==='dog'?'D':species==='cat'?'C':'H';
+  const heading=eventType==='temperament'?'Temperament Test':eventType==='therapy'?'Therapy Animal Test':'Canine Good Citizen Test';
+  addLine(lines,bold(heading)); addLine(lines,'');
+
+  accepted.forEach(item=>{
+    if(eventType==='temperament'||eventType==='therapy'){
+      const score=Math.floor(Math.random()*201);
+      const passed=score>=110;
+      const code=(eventType==='temperament'?'TT':'TA')+speciesSuffix;
+      const className=eventType==='temperament'?'Temperament Test':'Therapy Animal Test';
+      addLine(lines,item.rawEntry+' - '+score+'/200 - '+(passed?'Pass':'Fail'));
+      activityRecord(records,showData,className,className,{name:item.rawEntry,score,passed},1,passed?'Pass':'Fail');
+      const r=records[records.length-1];
+      r.activity_key=eventType==='temperament'?'temperament_test':'therapy_animal';
+      r.class_name=className; r.points=0; r.score=score; r.max_score=200; r.passed=passed;
+      r.score_label=passed?code:'Fail';
+    }else{
+      const level=item.cgcLevel;
+      if (!level) {
+        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
+      }
+      const passed=Math.random()<0.5;
+      addLine(lines,item.rawEntry+' - '+level.label+' ('+level.code+') - '+(passed?'Pass':'Fail'));
+      activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
+      const r=records[records.length-1];
+      r.activity_key=level.key; r.class_name=level.label; r.points=0; r.score=null; r.max_score=null; r.passed=passed;
+      r.score_label=passed?level.code:'Fail';
+    }
+  });
+
+  if(declined.length){
+    addLine(lines,''); addLine(lines,bold('Declined Entries'));
+    declined.forEach(x=>addLine(lines,x.entry+' - DECLINED: '+x.reason));
+  }
+  return {lines,records};
+}
+
+function runActivity(rawData, showData) {
+  const type = showData.showType;
+  const scored = type.includes('scored');
+  const noDivisions = type.includes('no-division');
+  const bestInField = type.includes('best-in-field');
+  const parsedActivities = noDivisions ? parseActivityNoDivisions(rawData, scored) : parseActivityWithDivisions(rawData, scored);
+  const activities = mergeActivityBlocks(parsedActivities);
+  if (!activities.length) throw new Error('No valid activity entries found.');
+  const lines = [], records = [];
+
+  activities.forEach(activityBlock => {
+    addLine(lines, bold(activityBlock.activity));
+    addLine(lines, '');
+    const fieldCandidates = [];
+
+    if (!noDivisions && activityBlock.division) {
+      addLine(lines, bold(activityBlock.division));
+      addLine(lines, '');
+    }
+
+    activityBlock.classes.forEach(cls => {
+      const randomizedEntries = shuffle(cls.entries);
+      const dividedGroups = noDivisions ? [randomizedEntries] : splitBalancedActivityGroups(randomizedEntries);
+
+      dividedGroups.forEach((groupEntries, groupIndex) => {
+        const classLabel = dividedGroups.length > 1 ? cls.name + ' - Group ' + (groupIndex + 1) : cls.name;
+        const entries = scored ? groupEntries.slice().sort((a,b) => b.score - a.score) : groupEntries;
+
+        addLine(lines, bold(classLabel));
+        entries.forEach((entry, i) => {
+          const suffix = scored
+            ? ' - ' + entry.score
+            : (typeof entry.passed === 'boolean' ? ' - ' + (entry.passed ? 'Pass' : 'Fail') : '');
+
+          // Pack/team/brace activity entries display as one unit, but each animal in
+          // the entry receives the class placement points in show_records.
+          addLine(lines, placementLabel(i + 1) + ' ' + entry.name + suffix);
+          activityRecordForEntry(records, showData, activityBlock.activity, classLabel, entry, i + 1, null, true);
+        });
+
+        // Best in Field is made from the 1st place entry of each class/group.
+        // If that winner is a pack/team/brace, its individual dogs enter the final.
+        if (entries[0]) {
+          fieldCandidates.push(...bestInFieldFinalistsFromEntry(entries[0], classLabel));
+        }
+        addLine(lines, '');
+      });
+    });
+
+    if (bestInField && fieldCandidates.length) {
+      const ranked = scored ? fieldCandidates.slice().sort((a,b) => b.score - a.score) : shuffle(fieldCandidates);
+
+      // Best in Field is one undivided final class. No Reserve Best in Field.
+      // The winner is stored once as placement "Best in Field" WITH first-place points.
+      // Other finalists keep normal placement records.
+      addLine(lines, bold('Best in Field'));
+      ranked.forEach((entry, i) => {
+        const suffix = scored ? ' - ' + entry.score : '';
+        const displayPlacement = placementLabel(i + 1);
+        const recordPlacement = i === 0 ? 'Best in Field' : String(i + 1);
+
+        addLine(lines, displayPlacement + ' ' + entry.name + suffix);
+        activityRecord(records, showData, activityBlock.activity, 'Best in Field', entry, recordPlacement, null);
+      });
+      addLine(lines, '');
+
+      const best = ranked[0];
+      if (best) {
+        addLine(lines, bold('Best in Field') + ': ' + best.name + (scored ? ' - ' + best.score : ''));
+      }
+    }
+
+    addLine(lines, '');
+    addLine(lines, '[hr]');
+    addLine(lines, '');
+  });
+
+  return { lines, records };
+}
+
+
+// =============================================================
+// 6. SORT-ONLY MODULE
+// =============================================================
+function classSortValue(name) {
+  const s = cleanLine(name).toLowerCase();
+  const m = s.match(/^class\s+(\d+)(a)?/i);
+  if (!m) return 9999;
+  const num = parseInt(m[1], 10);
+  const female = !!m[2];
+  return (female ? 1000 : 0) + num;
+}
+function sortConformationEntries(rawData) {
+  const groups = mergeConformationGroups(parseConformation(rawData));
+  if (!groups.length) throw new Error('No valid conformation entries found to sort.');
+
+  const lines = [];
+  groups.forEach(group => {
+    addLine(lines, group.name);
+    group.breeds
+      .slice()
+      .sort((a,b) => a.name.localeCompare(b.name))
+      .forEach(breed => {
+        addLine(lines, breed.name.toUpperCase());
+        breed.classes
+          .slice()
+          .sort((a,b) => classSortValue(a.name) - classSortValue(b.name) || a.name.localeCompare(b.name))
+          .forEach(cls => {
+            addLine(lines, cls.name);
+            cls.entries
+              .slice()
+              .sort((a,b) => removeDecorations(a).localeCompare(removeDecorations(b)))
+              .forEach(entry => addLine(lines, entry));
+            addLine(lines, '');
+          });
+      });
+    addLine(lines, '');
+  });
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+function sortEntriesOnly() {
+  hideMessage();
+  const rawData = $('rawData').value;
+  $('resultsContainer').className = 'hidden';
+  $('resultsContainer').innerHTML = '';
+  savedResults = ''; savedShowData = null; savedRecords = [];
+  if (!rawData.trim()) { showMessage('error', 'Please paste entries before sorting.'); return; }
+  try {
+    savedResults = sortConformationEntries(rawData);
+    renderSortedResults(savedResults);
+    showMessage('success', 'Entries sorted for copying only. No show records were created and nothing is ready to upload.');
+    captureWorkspaceState();
   } catch (err) {
-    console.error(err);
-    content.innerHTML = `<div class="empty">JavaScript error: ${err.message}</div>`;
+    showMessage('error', '<strong>ERROR:</strong> ' + String(err.message || err));
   }
 }
 
-function bootShowRecords() {
-  if (window.__showRecordsBooted) return;
-  window.__showRecordsBooted = true;
-  loadRecords();
+// =============================================================
+// 6. FORMATTER / UI
+// =============================================================
+function buildFinalOutput(showData, lines) {
+  let output = '';
+  if (showData.bannerUrl) output += '[img]' + showData.bannerUrl + '[/img]\n\n';
+  if (showData.showName) output += '[b][size=5]' + showData.showName + '[/size][/b]\n\n';
+  output += lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return output.trim();
 }
+function renderResults(finalOutput) {
+  const el = $('resultsContainer');
+  el.innerHTML = '<div class="ss-results-header"><h2>Show Results</h2><div class="ss-button-row"><button class="ss-button" onclick="SSRandomizer.copyResults()">📋 Copy Results</button><button id="uploadButton" class="ss-button" onclick="SSRandomizer.upload()">💾 Upload to Animal Show Records</button></div></div><div class="ss-results-content" id="resultsText">' + escapeHtml(finalOutput).replace(/\n/g, '<br>') + '</div>';
+  el.className = 'ss-results';
+}
+function renderSortedResults(finalOutput) {
+  const el = $('resultsContainer');
+  el.innerHTML = '<div class="ss-results-header"><h2>Sorted Entries</h2><div class="ss-button-row"><button class="ss-button" onclick="SSRandomizer.copyResults()">📋 Copy Sorted Entries</button></div></div><div class="ss-results-content" id="resultsText">' + escapeHtml(finalOutput).replace(/\n/g, '<br>') + '</div>';
+  el.className = 'ss-results';
+}
+async function randomizeShow() {
+  hideMessage();
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", bootShowRecords, { once: true });
-} else {
-  bootShowRecords();
+  const rawData = $('rawData').value;
+  const isChampionship = selectedChampionshipMode() === 'championship' && selectedEventCategory() !== 'herding';
+  const showType = resolveLegacyShowType();
+  const specialtySystemKey = activeRandomizerTab === 'specialty' && $('showFormat')
+    ? $('showFormat').value
+    : null;
+  const specialtyEventSelect = $('herdingEventType');
+  const specialtyEventValue = specialtyEventSelect ? specialtyEventSelect.value : null;
+
+  const showData = {
+    showName: cleanLine($('showName').value) || 'Untitled Show',
+    bannerUrl: cleanLine($('bannerUrl').value),
+    species: $('showSpecies').value,
+    eventCategory: selectedEventCategory(),
+    showType,
+    activityKey: $('activityKey') ? $('activityKey').value : null,
+    rawData,
+    isChampionship,
+    seriesName: isChampionship
+      ? cleanLine($('championshipSeries').value)
+      : cleanLine($('seriesName').value),
+    seriesRound: isChampionship
+      ? null
+      : cleanLine($('seriesRound').value),
+    herdingEventType: specialtyEventValue,
+    specialtyEventType: specialtyEventValue,
+    associationKey:
+      specialtySystemKey === 'icelandic_horse_club'
+        ? 'ihass'
+        : specialtySystemKey === 'endurance_club'
+          ? 'endurance_club'
+          : specialtySystemKey === 'hunting_club'
+            ? 'hunting_club'
+            : null,
+    associationEventType:
+      ['icelandic_horse_club','endurance_club','hunting_club'].includes(specialtySystemKey)
+        ? specialtyEventValue
+        : null
+  };
+
+  $('resultsContainer').className = 'hidden';
+  $('resultsContainer').innerHTML = '';
+
+  savedResults = '';
+  savedShowData = null;
+  savedRecords = [];
+
+  if (!showData.species) {
+    showMessage('error', 'Please select the show species.');
+    return;
+  }
+
+  if (activeRandomizerTab === 'specialty') {
+    const systemKey = $('showFormat') ? $('showFormat').value : '';
+    const system = SS_SPECIALTY_SYSTEMS.find(item => item.key === systemKey);
+
+    if (!system) {
+      showMessage('error', 'Please select a specialty system.');
+      return;
+    }
+
+    if (!system.active) {
+      showMessage('error', escapeHtml(system.display_name) + ' is reserved for the association-title build and is not active yet.');
+      return;
+    }
+  }
+
+  if (!isChampionship && !rawData.trim()) {
+    showMessage('error', 'Please paste entries before randomizing.');
+    return;
+  }
+
+  try {
+    let result;
+
+    if (isChampionship) {
+      result = await buildChampionshipQualifiers(showData, false);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'icelandic_horse_club') {
+      // Route from the ACTUAL selected specialty system, not a derived/stale showType.
+      result = runIcelandicClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'endurance_club') {
+      result = await runEnduranceClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'hunting_club') {
+      result = await runHuntingClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'herding_club') {
+      result = runHerdingClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && /^testing_system_/.test(specialtySystemKey || '')) {
+      result = await runTestingSystem(rawData, showData);
+    } else if (getShowTypeKind(showData.showType, showData) === 'activity') {
+      result = runActivity(rawData, showData);
+    } else {
+      result = runConformation(rawData, showData);
+    }
+
+    savedResults = buildFinalOutput(showData, result.lines);
+    savedShowData = showData;
+    savedRecords = result.records;
+    renderResults(savedResults);
+    captureWorkspaceState();
+
+  } catch (err) {
+    console.error('SS Randomizer error:', err && err.stack ? err.stack : err);
+    showMessage('error', '<strong>ERROR:</strong> ' + escapeHtml(String(err.message || err)));
+  }
 }
+function clearData() {
+  const label =
+    activeRandomizerTab === 'conformation' ? 'Conformation' :
+    activeRandomizerTab === 'activities' ? 'Standard Activities' :
+    'Specialty / Association';
+
+  if (!confirm('Clear the ' + label + ' workspace?\\n\\nThis clears only this tab. The other randomizer tabs will stay untouched.')) {
+    return;
+  }
+
+  randomizerWorkspaceState[activeRandomizerTab] = null;
+  restoreWorkspaceState(activeRandomizerTab);
+}
+function copyResults() {
+  navigator.clipboard.writeText(savedResults || '').then(() => showMessage('success', 'Results copied.')).catch(() => alert('Could not copy results. Please select and copy manually.'));
+}
+window.SSRandomizer = {
+  run: randomizeShow,
+  sort: sortEntriesOnly,
+  clear: clearData,
+  copyResults,
+  upload: uploadShowRecords,
+  previewChampionship,
+  status: {
+    standardConformation: true,
+    standardActivities: true,
+    conformationChampionships: true,
+    activityChampionships: true,
+    uploadEnabled: true,
+    specialtyAssociationsInProgress: true
+  }
+};
+})();
