@@ -197,7 +197,6 @@ const SS_ENTRY_TITLE_CODES = [
   'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
   'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
   'FFA','VBC','VNC','TTC','TTD','ATC',
-  'CGC','CGCB','CGCS','CGCG','CGCA','CGCU',
   'CIHDM','IHDM','ENJ','ENN','ENO','GDM','GDI','GD3L','GDT','GYR',
   'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
   'DCPEC',
@@ -261,7 +260,7 @@ async function loadAnimalsMap(supabase) {
     const to = from + pageSize - 1;
     const { data, error } = await supabase
       .from('animals')
-      .select('id, animal_number, name, normalized_name, species, breed, manual_prefix_titles, manual_suffix_titles')
+      .select('id, animal_number, name, normalized_name, species, breed')
       .order('id', { ascending: true })
       .range(from, to);
 
@@ -297,8 +296,6 @@ async function loadAnimalsMap(supabase) {
           name: a.name,
           species: a.species || null,
           breed: a.breed || null,
-          manual_prefix_titles: a.manual_prefix_titles || null,
-          manual_suffix_titles: a.manual_suffix_titles || null,
           key
         });
       }
@@ -1351,19 +1348,6 @@ function buildTitleSpecialtySections(groups) {
     titles
   })).filter(section => countGroupIndividuals(section.groups) > 0);
 }
-function majorChaseMultiplierForClassSize(classSize) {
-  /*
-    MAJOR CHASE:
-    1-10 = x1
-    11-20 = x2
-    21-30 = x3
-    31-40 = x4
-    and so on.
-  */
-  const size = Math.max(0, Number(classSize || 0));
-  return size > 0 ? Math.ceil(size / 10) : 1;
-}
-
 function buildMajorChaseGroups(groups) {
   return mergeConformationGroups(groups).map(group => ({
     name: group.name,
@@ -1377,49 +1361,12 @@ function buildMajorChaseGroups(groups) {
       });
 
       const classes = [];
-      if (males.length) {
-        classes.push({
-          name: 'Class 5',
-          entries: males,
-          majorMultiplier: majorChaseMultiplierForClassSize(males.length)
-        });
-      }
-      if (females.length) {
-        classes.push({
-          name: 'Class 5a',
-          entries: females,
-          majorMultiplier: majorChaseMultiplierForClassSize(females.length)
-        });
-      }
+      if (males.length) classes.push({ name: 'Class 5', entries: males });
+      if (females.length) classes.push({ name: 'Class 5a', entries: females });
 
       return { name: breed.name, classes };
     }).filter(breed => breed.classes.length)
   })).filter(group => group.breeds.length);
-}
-
-function applyMajorChasePoints(result, majorGroups) {
-  const multiplierByAnimal = new Map();
-
-  (majorGroups || []).forEach(group => {
-    (group.breeds || []).forEach(breed => {
-      (breed.classes || []).forEach(cls => {
-        const multiplier = Number(cls.majorMultiplier || 0) ||
-          majorChaseMultiplierForClassSize((cls.entries || []).length);
-
-        (cls.entries || []).forEach(entry => {
-          multiplierByAnimal.set(String(entry || ''), multiplier);
-        });
-      });
-    });
-  });
-
-  (result.records || []).forEach(record => {
-    const multiplier = multiplierByAnimal.get(String(record.animal_name || '')) || 1;
-    record.points = Number(record.points || 0) * multiplier;
-    record.major_multiplier = multiplier;
-  });
-
-  return result;
 }
 
 function runConformation(rawData, showData) {
@@ -1427,9 +1374,7 @@ function runConformation(rawData, showData) {
   if (!groups.length) throw new Error('No valid conformation groups found.');
 
   if (showData.showType === 'major-chase') {
-    const majorGroups = buildMajorChaseGroups(groups);
-    const result = runConformationGroups(majorGroups, showData, { finals: 'all-breed' });
-    return applyMajorChasePoints(result, majorGroups);
+    return runConformationGroups(buildMajorChaseGroups(groups), showData, { finals: 'all-breed' });
   }
 
   if (showData.showType === 'rare-breed') {
@@ -1902,9 +1847,7 @@ const SS_HUNTING_FIELD_TESTS = {
     code: 'CD',
     specializations: {
       boar: { label:'Boar', code:'b' },
-      feral_pig: { label:'Feral Pig', code:'p' },
-      cattle: { label:'Cattle', code:'c' },
-      bull: { label:'Bull', code:'bu' }
+      cattle: { label:'Cattle', code:'c' }
     },
     categories: ['Quarry Engagement','Hold / Control','Grip & Commitment','Handler Response','Safety & Stability']
   },
@@ -2628,41 +2571,9 @@ const CHAMPIONSHIP_AWARD_SETS = {
 function selectedChampionshipShowIds() {
   return Array.from(document.querySelectorAll('.ss-championship-show:checked')).map(el => el.value);
 }
-function normalizeChampionshipAward(value) {
-  const raw = cleanLine(value)
-    .replace(/[–—]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-
-  const aliases = {
-    'bob': 'best of breed',
-    'best breed': 'best of breed',
-    'big': 'best in group',
-    'rbig': 'reserve best in group',
-    'reserve big': 'reserve best in group',
-    'bis': 'best in show',
-    'rbis': 'reserve best in show',
-    'reserve bis': 'reserve best in show',
-    'biss': 'best in show specialty',
-    'rbiss': 'reserve best in show specialty',
-    'reserve biss': 'reserve best in show specialty',
-    'male challenge winner': 'male challenge',
-    'female challenge winner': 'female challenge',
-    'reserve male challenge winner': 'reserve male challenge',
-    'reserve female challenge winner': 'reserve female challenge'
-  };
-
-  return aliases[raw] || raw;
-}
-
 function championshipAwardAllowed(placement, rule) {
   const allowed = CHAMPIONSHIP_AWARD_SETS[rule] || CHAMPIONSHIP_AWARD_SETS['bob-or-better'];
-  const wanted = normalizeChampionshipAward(placement);
-
-  return [...allowed].some(value =>
-    normalizeChampionshipAward(value) === wanted
-  );
+  return allowed.has(cleanLine(placement));
 }
 function formatSeriesShowLabel(show) {
   const round = show.series_round !== null && show.series_round !== undefined ? 'Round ' + show.series_round + ' — ' : '';
@@ -2703,7 +2614,7 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/'/g, '&#039;');
 }
 async function loadChampionshipShows() {
   const supabase = getSupabase();
@@ -2737,12 +2648,10 @@ async function loadChampionshipShows() {
   }
 
   const wantedKind = currentShowKind();
-  championshipShowsCache = (data || []).filter(show => {
-    const scope = cleanLine(show.show_scope).toLowerCase();
-    const type = cleanLine(show.show_type).toLowerCase();
-
-    return scope !== 'championship' && type === wantedKind;
-  });
+  championshipShowsCache = (data || []).filter(show =>
+    String(show.show_scope || '').toLowerCase() !== 'championship' &&
+    String(show.show_type || '').toLowerCase() === wantedKind
+  );
   if (!championshipShowsCache.length) {
     list.innerHTML = '<small>No eligible source shows were found in this series.</small>';
     return;
@@ -2755,153 +2664,39 @@ async function loadChampionshipShows() {
     '</label>'
   ).join('');
 }
-async function loadRecordsForShowIds(supabase, showIds, showKind, sourceShows = []) {
-  /*
-    Championship source records exist in two generations on SS:
-      1) current records linked by upload_id;
-      2) older records that may only carry show_name / animal_number.
-
-    Load one source show at a time to avoid statement_timeout, then fall back to
-    show_name ONLY when that selected upload has no linked records. This avoids
-    silently dropping otherwise valid historical qualifiers.
-  */
+async function loadRecordsForShowIds(supabase, showIds, showKind) {
   const all = [];
-  const seenRecordKeys = new Set();
+  const chunkSize = 100;
   const kind = showKind || 'conformation';
-  const pageSize = 500;
-  const showById = new Map((sourceShows || []).map(show => [String(show.id), show]));
 
-  function pushRows(rows) {
-    (rows || []).forEach(row => {
-      const key = [
-        String(row.upload_id || ''),
-        String(row.animal_id || ''),
-        String(row.animal_number || ''),
-        String(row.show_name || ''),
-        String(row.class || ''),
-        String(row.placement || '')
-      ].join('||');
+  for (let i = 0; i < showIds.length; i += chunkSize) {
+    const chunk = showIds.slice(i, i + chunkSize);
 
-      if (seenRecordKeys.has(key)) return;
-      seenRecordKeys.add(key);
-      all.push(row);
-    });
-  }
+    let query = supabase
+      .from('show_records')
+      .select('upload_id, animal_id, placement, class, activity_key, score, max_score, passed, score_label')
+      .in('upload_id', chunk)
+      .eq('show_type', kind);
 
-  async function pagedLoad(buildQuery, label) {
-    let from = 0;
-    let loaded = 0;
+    let { data, error } = await query;
 
-    while (true) {
-      const to = from + pageSize - 1;
+    if (error && /activity_key|score|max_score|passed|score_label|column/i.test(String(error.message || ''))) {
+      const retry = await supabase
+        .from('show_records')
+        .select('upload_id, animal_id, placement, class')
+        .in('upload_id', chunk)
+        .eq('show_type', kind);
 
-      let query = buildQuery(
-        supabase
-          .from('show_records')
-          .select('upload_id, animal_id, animal_number, show_name, placement, class, activity_key, score, max_score, passed, score_label')
-      )
-        .eq('show_type', kind)
-        .range(from, to);
-
-      let { data, error } = await query;
-
-      if (
-        error &&
-        /activity_key|score|max_score|passed|score_label|column/i.test(
-          String(error.message || '')
-        )
-      ) {
-        const retry = await buildQuery(
-          supabase
-            .from('show_records')
-            .select('upload_id, animal_id, animal_number, show_name, placement, class')
-        )
-          .eq('show_type', kind)
-          .range(from, to);
-
-        data = retry.data;
-        error = retry.error;
-      }
-
-      if (error) {
-        throw new Error('Qualifier record load failed for ' + label + ': ' + error.message);
-      }
-
-      const rows = data || [];
-      pushRows(rows);
-      loaded += rows.length;
-
-      if (rows.length < pageSize) break;
-      from += pageSize;
+      data = retry.data;
+      error = retry.error;
     }
 
-    return loaded;
-  }
-
-  for (const rawUploadId of (showIds || [])) {
-    const uploadId = String(rawUploadId || '').trim();
-    if (!uploadId) continue;
-
-    const linkedCount = await pagedLoad(
-      query => query.eq('upload_id', uploadId),
-      'source upload ' + uploadId
-    );
-
-    if (!linkedCount) {
-      const sourceShow = showById.get(uploadId);
-      const showName = cleanLine(sourceShow && sourceShow.show_name);
-
-      if (showName) {
-        await pagedLoad(
-          query => query.eq('show_name', showName),
-          'legacy source show "' + showName + '"'
-        );
-      }
-    }
+    if (error) throw new Error('Qualifier record load failed: ' + error.message);
+    all.push(...(data || []));
   }
 
   return all;
 }
-async function resolveChampionshipRecordAnimalIds(supabase, records) {
-  const unresolvedNumbers = [...new Set(
-    (records || [])
-      .filter(record => !record.animal_id && record.animal_number !== null && record.animal_number !== undefined && record.animal_number !== '')
-      .map(record => Number(record.animal_number))
-      .filter(Number.isFinite)
-  )];
-
-  if (!unresolvedNumbers.length) return records || [];
-
-  const numberToId = new Map();
-  const chunkSize = 100;
-
-  for (let i = 0; i < unresolvedNumbers.length; i += chunkSize) {
-    const chunk = unresolvedNumbers.slice(i, i + chunkSize);
-
-    const { data, error } = await supabase
-      .from('animals')
-      .select('id, animal_number')
-      .in('animal_number', chunk);
-
-    if (error) {
-      throw new Error('Legacy Championship animal-number lookup failed: ' + error.message);
-    }
-
-    (data || []).forEach(animal => {
-      numberToId.set(String(animal.animal_number), String(animal.id));
-    });
-  }
-
-  return (records || []).map(record => {
-    if (record.animal_id) return record;
-
-    const resolvedId = numberToId.get(String(record.animal_number));
-    return resolvedId
-      ? Object.assign({}, record, { animal_id: resolvedId })
-      : record;
-  });
-}
-
 async function loadChampionshipAnimals(supabase, animalIds) {
   const animals = [];
   const chunkSize = 100;
@@ -3043,14 +2838,7 @@ async function buildConformationChampionshipQualifiers(showData, previewOnly) {
   if (!showIds.length) throw new Error('Please select at least one source show.');
 
   const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
-  const loadedRecords = await loadRecordsForShowIds(
-    supabase,
-    showIds,
-    'conformation',
-    sourceShows
-  );
-  const records = await resolveChampionshipRecordAnimalIds(supabase, loadedRecords);
-
+  const records = await loadRecordsForShowIds(supabase, showIds, 'conformation');
   const qualifyingRecords = records.filter(record =>
     record.animal_id && championshipAwardAllowed(record.placement, rule)
   );
@@ -3075,54 +2863,8 @@ async function buildConformationChampionshipQualifiers(showData, previewOnly) {
     }
 
     const breedName = normalizeBreedName(animal.breed || '');
-    let groupName = breedGroupLookup.get(breedName.toLowerCase()) || null;
-
-    const storedClass = cleanLine(record.class);
-    const storedClassIsAward = championshipAwardAllowed(storedClass, 'challenge-or-better') ||
-      /^(?:reserve\s+)?best\s+/i.test(storedClass);
-
-    const className =
-      storedClass && !storedClassIsAward && isClassLine(storedClass)
-        ? storedClass
-        : (String(animal.gender || '').toLowerCase().startsWith('f') ? 'Class 1a' : 'Class 1');
-
-    /*
-      Fallback for source uploads whose stored result text does not expose the
-      breed heading in the expected shape. Search the selected source-show text
-      for a "Breeds:" line containing the registry breed and use the nearest
-      preceding recognized group heading.
-    */
-    if (breedName && !groupName) {
-      const breedKey = breedName.toLowerCase();
-
-      for (const sourceShow of sourceShows) {
-        let currentGroup = null;
-        const sourceLines = sourceLinesForShow(sourceShow).map(championshipHeadingText);
-
-        for (const sourceLine of sourceLines) {
-          const normalizedGroup = normalizeGroupName(sourceLine);
-          if (SS_CONFIG.groupOrder.includes(normalizedGroup)) {
-            currentGroup = normalizedGroup;
-            continue;
-          }
-
-          const breedList = sourceLine.match(/^Breeds:\s*(.+)$/i);
-          if (
-            currentGroup &&
-            breedList &&
-            breedList[1]
-              .split(',')
-              .map(value => normalizeBreedName(value).toLowerCase())
-              .includes(breedKey)
-          ) {
-            groupName = currentGroup;
-            break;
-          }
-        }
-
-        if (groupName) break;
-      }
-    }
+    const groupName = breedGroupLookup.get(breedName.toLowerCase());
+    const className = cleanLine(record.class) || (String(animal.gender || '').toLowerCase().startsWith('f') ? 'Class 1a' : 'Class 1');
 
     if (!breedName || !groupName) {
       unresolved.push((animal.name || animalId) + ' (breed/group not found)');
@@ -3324,13 +3066,7 @@ async function buildActivityChampionshipQualifiers(showData, previewOnly) {
   if (!showIds.length) throw new Error('Please select at least one source show.');
 
   const sourceShows = championshipShowsCache.filter(show => showIds.includes(String(show.id)));
-  const loadedRecords = await loadRecordsForShowIds(
-    supabase,
-    showIds,
-    'activity',
-    sourceShows
-  );
-  const records = await resolveChampionshipRecordAnimalIds(supabase, loadedRecords);
+  const records = await loadRecordsForShowIds(supabase, showIds, 'activity');
 
   const qualifyingRecords = records.filter(record =>
     record.animal_id &&
@@ -3367,11 +3103,7 @@ async function buildActivityChampionshipQualifiers(showData, previewOnly) {
 }
 
 async function buildChampionshipQualifiers(showData, previewOnly) {
-  // Use the show snapshot created when Run/Preview was clicked. Do not rely on
-  // a live hidden UI field that can be reset while championship controls load.
-  const category = cleanLine(showData && showData.eventCategory).toLowerCase();
-
-  if (category === 'activities' || category === 'activity') {
+  if (selectedEventCategory() === 'activities') {
     return buildActivityChampionshipQualifiers(showData, previewOnly);
   }
 
@@ -3430,10 +3162,7 @@ async function previewChampionship() {
         '<strong>' + escapeHtml(preview.seriesName) + '</strong><br>' +
         'Source shows selected: ' + preview.selectedShows.length + '<br>' +
         'Unique qualifiers found: ' + preview.qualifiedCount +
-        (preview.unresolvedCount
-          ? '<br><strong>Could not rebuild:</strong> ' + preview.unresolvedCount +
-            '<br><small>' + escapeHtml((preview.unresolved || []).slice(0, 12).join('; ')) + '</small>'
-          : '') +
+        (preview.unresolvedCount ? '<br>Could not rebuild from source entries: ' + preview.unresolvedCount : '') +
         (breeds ? '<br><br><strong>Breed totals</strong><br>' + breeds : '');
     }
 
@@ -4232,7 +3961,7 @@ async function checkEnduranceRaceEligibility(rawData,race){
 
   for(const rawEntry of entries){
     const match=findAnimal(rawEntry,animalMap);
-    if(match.status!=='ok'){
+    if(match.status!=='matched'){
       declined.push({entry:rawEntry,reason:match.status==='ambiguous'?'Duplicate exact registry name':'Exact registry animal not found'});
       continue;
     }
@@ -4886,41 +4615,15 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
         {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
       ];
       const passed=new Set();
-
-      // Recognize CGC titles already stored directly on the animal profile.
-      const storedTitleText = [
-        animal.manual_prefix_titles,
-        animal.manual_suffix_titles
-      ].filter(Boolean).join(' ');
-
-      // CGC titles may be stored on the profile OR already be present in the
-      // pasted entry line. Read both. This is important because SS entries
-      // commonly arrive as e.g. "CGCB Registered Name - Owner".
-      const cgcTitleSource = storedTitleText + ' ' + String(rawEntry || '');
-      const cgcCodesInEntry = new Set(
-        (cgcTitleSource.toUpperCase().match(/\bCGC(?:B|S|G|A|U)?\.?\b/g) || [])
-          .map(code => code.replace(/\./g, ''))
-      );
-
-      levels.forEach((level,index)=>{
-        if(!cgcCodesInEntry.has(level.code)) return;
-        // Higher CGC titles imply every earlier level was already earned.
-        for(let i=0;i<=index;i++) passed.add(levels[i].key);
-      });
-
-      // Merge in prior passed CGC show records too.
       records.forEach(r=>{
         if(r.passed!==true)return;
         const key=cleanLine(r.activity_key).toLowerCase();
         const cls=cleanLine(r.class).toLowerCase();
         const lbl=cleanLine(r.score_label).toLowerCase();
-        levels.forEach((level,index)=>{
-          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()){
-            for(let i=0;i<=index;i++) passed.add(levels[i].key);
-          }
+        levels.forEach(level=>{
+          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()) passed.add(level.key);
         });
       });
-
       cgcLevel=levels.find(level=>!passed.has(level.key))||null;
       if(!cgcLevel){declined.push({entry:rawEntry,reason:'All CGC levels already earned'});continue;}
       const i=levels.findIndex(level=>level.key===cgcLevel.key);
@@ -4954,49 +4657,8 @@ async function runTestingSystem(rawData,showData){
   const heading=eventType==='temperament'?'Temperament Test':eventType==='therapy'?'Therapy Animal Test':'Canine Good Citizen Test';
   addLine(lines,bold(heading)); addLine(lines,'');
 
-  if(eventType==='cgc'){
-    // Group dogs by the CGC title they are currently attempting so the output
-    // reads as separate title classes: CGC, CGCB, CGCS, CGCG, CGCA, CGCU.
-    const levelOrder=['cgc','cgcb','cgcs','cgcg','cgca','cgcu'];
-    const grouped={};
-
-    accepted.forEach(item=>{
-      const level=item.cgcLevel;
-      if(!level){
-        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
-      }
-      if(!grouped[level.key]) grouped[level.key]=[];
-      grouped[level.key].push(item);
-    });
-
-    levelOrder.forEach(levelKey=>{
-      const group=grouped[levelKey]||[];
-      if(!group.length) return;
-
-      const level=group[0].cgcLevel;
-      addLine(lines,'========================================');
-      addLine(lines,bold(level.code + ' — ' + level.label));
-      addLine(lines,'========================================');
-      addLine(lines,'');
-
-      group.forEach(item=>{
-        const passed=Math.random()<0.5;
-        addLine(lines,item.rawEntry+' - '+(passed?'Pass':'Fail'));
-        activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
-        const r=records[records.length-1];
-        r.activity_key=level.key;
-        r.class_name=level.label;
-        r.points=0;
-        r.score=null;
-        r.max_score=null;
-        r.passed=passed;
-        r.score_label=passed?level.code:'Fail';
-      });
-
-      addLine(lines,'');
-    });
-  }else{
-    accepted.forEach(item=>{
+  accepted.forEach(item=>{
+    if(eventType==='temperament'||eventType==='therapy'){
       const score=Math.floor(Math.random()*201);
       const passed=score>=110;
       const code=(eventType==='temperament'?'TT':'TA')+speciesSuffix;
@@ -5005,14 +4667,21 @@ async function runTestingSystem(rawData,showData){
       activityRecord(records,showData,className,className,{name:item.rawEntry,score,passed},1,passed?'Pass':'Fail');
       const r=records[records.length-1];
       r.activity_key=eventType==='temperament'?'temperament_test':'therapy_animal';
-      r.class_name=className;
-      r.points=0;
-      r.score=score;
-      r.max_score=200;
-      r.passed=passed;
+      r.class_name=className; r.points=0; r.score=score; r.max_score=200; r.passed=passed;
       r.score_label=passed?code:'Fail';
-    });
-  }
+    }else{
+      const level=item.cgcLevel;
+      if (!level) {
+        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
+      }
+      const passed=Math.random()<0.5;
+      addLine(lines,item.rawEntry+' - '+level.label+' ('+level.code+') - '+(passed?'Pass':'Fail'));
+      activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
+      const r=records[records.length-1];
+      r.activity_key=level.key; r.class_name=level.label; r.points=0; r.score=null; r.max_score=null; r.passed=passed;
+      r.score_label=passed?level.code:'Fail';
+    }
+  });
 
   if(declined.length){
     addLine(lines,''); addLine(lines,bold('Declined Entries'));
