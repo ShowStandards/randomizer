@@ -197,7 +197,7 @@ const SS_ENTRY_TITLE_CODES = [
   'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
   'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
   'FFA','VBC','VNC','TTC','TTD','ATC',
-  'CIHDM','IHDM','ENJ','ENN','ENO','GDM','GDI','GD3L','GDT','GYR',
+  'CIHDM','IHDM','ENJ\\d*','ENN\\d*','ENO\\d*','GDM','GDI','GD3L','GDT','GYR',
   'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
   'DCPEC',
 
@@ -3946,6 +3946,37 @@ function standardEndurancePoints(records){
     .reduce((sum,r)=>sum+Number(r.points||r.calculated_points||0),0);
 }
 
+function enduranceTitleTierFromText() {
+  const text = Array.from(arguments)
+    .filter(Boolean)
+    .map(value => String(value))
+    .join(' ')
+    .toUpperCase();
+
+  // Multiplier titles such as EnO2 / EnJ3 / EnN4 count as their base tier.
+  if (/(^|[^A-Z0-9])ENO\d*(?=$|[^A-Z0-9])/i.test(text)) return 3;
+  if (/(^|[^A-Z0-9])ENJ\d*(?=$|[^A-Z0-9])/i.test(text)) return 2;
+  if (/(^|[^A-Z0-9])ENN\d*(?=$|[^A-Z0-9])/i.test(text)) return 1;
+  return 0;
+}
+
+function enduranceEligibilityTier(rawEntry, animal, endurancePoints) {
+  const titleTier = enduranceTitleTierFromText(
+    rawEntry,
+    animal && animal.name,
+    animal && animal.normalized_name
+  );
+
+  // Keep historical-point qualification working too.
+  const pointsTier =
+    endurancePoints >= 125 ? 3 :
+    endurancePoints >= 50 ? 2 :
+    endurancePoints >= 25 ? 1 :
+    0;
+
+  return Math.max(titleTier, pointsTier);
+}
+
 function passedPlacement(r){
   const m=String(r.placement||'').match(/\d+/);
   return m ? Number(m[0]) : null;
@@ -3981,14 +4012,19 @@ async function checkEnduranceRaceEligibility(rawData,race){
 
     const prior=data||[];
     const endurancePoints=standardEndurancePoints(prior);
+    const enduranceTier=enduranceEligibilityTier(rawEntry,animal,endurancePoints);
 
     // Endurance Club Stakes eligibility:
     // Grade III: no title required
-    // Grade II: EnN or higher (25+ standard Endurance points)
-    // Grade I: EnJ or higher (50+ standard Endurance points)
+    // Grade II: EnN or higher
+    // Grade I: EnJ or higher
+    //
+    // Eligibility accepts either the visible Endurance title (including
+    // multipliers such as EnN2 / EnJ2 / EnO2) OR the historical standard
+    // Endurance points that would have earned that tier.
     const grade = String(race.grade || '').toUpperCase().trim();
 
-    if (grade === 'II' && endurancePoints < 25) {
+    if (grade === 'II' && enduranceTier < 1) {
       declined.push({
         entry: rawEntry,
         reason: 'Grade II Stakes require EnN or higher'
@@ -3996,7 +4032,7 @@ async function checkEnduranceRaceEligibility(rawData,race){
       continue;
     }
 
-    if (grade === 'I' && endurancePoints < 50) {
+    if (grade === 'I' && enduranceTier < 2) {
       declined.push({
         entry: rawEntry,
         reason: 'Grade I Stakes require EnJ or higher'
@@ -4042,7 +4078,7 @@ async function checkEnduranceRaceEligibility(rawData,race){
         (passedPlacement(r)||99)<=3
       );
 
-      const enOpen=endurancePoints>=125;
+      const enOpen=enduranceEligibilityTier(rawEntry,animal,endurancePoints)>=3;
 
       const seriesWins={gemstone:new Set(),crystal:new Set()};
       prior.forEach(r=>{
