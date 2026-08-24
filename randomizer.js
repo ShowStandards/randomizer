@@ -1515,6 +1515,7 @@ function captureWorkspaceState() {
     activityResultMethod: $('activityResultMethod') ? $('activityResultMethod').value : 'placement',
     maxScore: $('maxScore') ? $('maxScore').value : '100',
     herdingEventType: $('herdingEventType') ? $('herdingEventType').value : 'instinct',
+    enduranceHostConference: $('enduranceHostConference') ? $('enduranceHostConference').value : 'Western',
     showName: $('showName') ? $('showName').value : '',
     bannerUrl: $('bannerUrl') ? $('bannerUrl').value : '',
     seriesName: $('seriesName') ? $('seriesName').value : '',
@@ -2299,6 +2300,16 @@ function ensureEnduranceControls() {
       <small id="enduranceRaceMeta">Select a rated race.</small>
     </div>
 
+    <div class="ss-field hidden" id="enduranceHostConferenceField">
+      <label>Host Conference</label>
+      <select id="enduranceHostConference">
+        <option value="Western">Western</option>
+        <option value="Eastern">Eastern</option>
+        <option value="Both">Both</option>
+      </select>
+      <small>Required only for races marked Host Dependent.</small>
+    </div>
+
     <div class="ss-field" id="enduranceUnratedDistanceField">
       <label>Unrated Race Distance (km)</label>
       <input type="number" id="enduranceUnratedDistance" min="0" step="1" value="100">
@@ -2321,6 +2332,10 @@ function ensureEnduranceControls() {
   $('herdingPanel').appendChild(wrapper);
 
   $('enduranceRaceKey').addEventListener('change', updateEnduranceRaceMeta);
+  $('enduranceHostConference').addEventListener('change', () => {
+    updateEnduranceRaceMeta();
+    captureWorkspaceState();
+  });
   $('herdingEventType').addEventListener('change', renderEnduranceControls);
 }
 
@@ -2340,6 +2355,9 @@ function renderEnduranceControls() {
   const mode = $('herdingEventType')?.value || 'prospect';
   $('enduranceRaceField').className = mode === 'rated' ? 'ss-field' : 'hidden';
   $('enduranceUnratedDistanceField').className = mode === 'unrated' ? 'ss-field' : 'hidden';
+
+  const hostConferenceField = $('enduranceHostConferenceField');
+  if (hostConferenceField) hostConferenceField.className = 'hidden';
 
   const raceSelect = $('enduranceRaceKey');
   if (raceSelect && mode === 'rated') {
@@ -2374,17 +2392,26 @@ function renderEnduranceControls() {
 function updateEnduranceRaceMeta() {
   const race = SS_ENDURANCE_RACES.find(row => row.key === $('enduranceRaceKey')?.value);
   const meta = $('enduranceRaceMeta');
+  const hostField = $('enduranceHostConferenceField');
   if (!meta) return;
 
   if (!race) {
+    if (hostField) hostField.className = 'hidden';
     meta.textContent = 'Select a rated race.';
     return;
   }
 
+  const hostDependent = cleanLine(race.conference).toLowerCase() === 'host dependent';
+  if (hostField) hostField.className = hostDependent ? 'ss-field' : 'hidden';
+
+  const selectedConference = hostDependent
+    ? ($('enduranceHostConference')?.value || 'Western')
+    : race.conference;
+
   const bits = [];
   if (race.grade) bits.push('Grade ' + race.grade);
   if (race.distance_km) bits.push(race.distance_km + ' km');
-  if (race.conference) bits.push(race.conference);
+  if (selectedConference) bits.push(selectedConference);
   if (race.series) bits.push(race.series.replace(/_/g,' '));
   const grade = String(race.grade || '').toUpperCase().trim();
   if (grade === 'II') bits.push('Requires EnN+');
@@ -3982,6 +4009,12 @@ function passedPlacement(r){
   return m ? Number(m[0]) : null;
 }
 
+function enduranceRaceConference(race){
+  const base = cleanLine(race && race.conference);
+  if (base.toLowerCase() !== 'host dependent') return base || null;
+  return $('enduranceHostConference')?.value || null;
+}
+
 async function checkEnduranceRaceEligibility(rawData,race){
   const supabase=getSupabase();
   if(!supabase) throw new Error('Supabase is not ready.');
@@ -4111,12 +4144,13 @@ async function runEnduranceRated(rawData,showData){
   }
 
   const lines=[],records=[];
+  const selectedConference = enduranceRaceConference(race);
   addLine(lines,bold(race.name));
   addLine(lines,
     [
       race.grade ? 'Grade '+race.grade : null,
       race.distance_km ? race.distance_km+' km' : null,
-      race.conference || null,
+      selectedConference || null,
       race.circuit || null
     ].filter(Boolean).join(' • ')
   );
@@ -4140,7 +4174,7 @@ async function runEnduranceRated(rawData,showData){
       endurance_race_key:race.key,
       endurance_race_name:race.name,
       endurance_grade:race.grade||null,
-      endurance_conference:race.conference||null,
+      endurance_conference:selectedConference||null,
       endurance_circuit:race.circuit||null,
       endurance_series:race.series||null,
       endurance_distance_km:Number(race.distance_km||0),
