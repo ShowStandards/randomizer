@@ -1924,7 +1924,7 @@ const SS_SPECIALTY_SYSTEMS = [
     key: 'spaniel_club',
     display_name: 'Spaniel Club',
     species: 'dog',
-    active: false,
+    active: true,
     title_system: true
   },
   {
@@ -2264,6 +2264,11 @@ function relabelSpecialtyPanel(systemKey) {
       title:'Hunting Club',
       event:'Hunting Event',
       help:'Run zero-point working Field Tests with independent quarry / environment specializations.'
+    },
+    spaniel_club: {
+      title:'Spaniel Club',
+      event:'Spaniel Club Event',
+      help:'Run Spaniel Club conformation, working classes, and scored Challenge Classes.'
     }
   }[systemKey];
 
@@ -2284,6 +2289,326 @@ function relabelSpecialtyPanel(systemKey) {
   if (help && !help.closest('#enduranceClubControls') && !help.closest('#huntingClubControls')) {
     help.textContent = config.help;
   }
+}
+
+const SS_SPANIEL_CHALLENGES = {
+  natural_ability: {
+    label: 'Natural Ability Challenge',
+    categories: [
+      ['Confidence in unfamiliar environment',20],
+      ['Curiosity & willingness to investigate',20],
+      ['Response to novel object/situation',15],
+      ['Recovery from surprise/distraction',15],
+      ['Willingness to work',20],
+      ['Overall temperament',10]
+    ]
+  },
+  nose: {
+    label: 'Spaniel Nose Challenge',
+    categories: [
+      ['Interest in scent',15],
+      ['Ability to locate scent source',25],
+      ['Persistence',20],
+      ['Search independence',15],
+      ['Accuracy / indication',15],
+      ['Focus despite distractions',10]
+    ]
+  },
+  handler_partnership: {
+    label: 'Handler Partnership Challenge',
+    categories: [
+      ['Attention to handler',15],
+      ['Responsiveness to direction',20],
+      ['Willingness to work',15],
+      ['Recall / return to handler',20],
+      ['Working through distractions',15],
+      ['Overall teamwork',15]
+    ]
+  },
+  retrieve_carry: {
+    label: 'Retrieve & Carry Challenge',
+    categories: [
+      ['Interest in object',10],
+      ['Locate/approach retrieve',15],
+      ['Willingness to pick up',20],
+      ['Carry',15],
+      ['Return toward handler',20],
+      ['Delivery/release',10],
+      ['Enthusiasm & persistence',10]
+    ]
+  },
+  steadiness_control: {
+    label: 'Steadiness & Control Challenge',
+    categories: [
+      ['Initial composure',10],
+      ['Control around movement',20],
+      ['Control around another dog',15],
+      ['Response to sudden distraction',15],
+      ['Ability to wait when asked',15],
+      ['Recall from distraction',15],
+      ['Recovery & refocus',10]
+    ]
+  },
+  problem_solving: {
+    label: 'Problem Solving Challenge',
+    categories: [
+      ['Willingness to attempt task',15],
+      ['Independent investigation',15],
+      ['Persistence',20],
+      ['Adaptability/change of approach',20],
+      ['Successful solution',15],
+      ['Confidence',10],
+      ['Recovery from unsuccessful attempt',5]
+    ]
+  },
+  complete: {
+    label: 'Complete Spaniel Challenge',
+    categories: [
+      ['Natural Ability',15],
+      ['Nose',15],
+      ['Handler Partnership',15],
+      ['Retrieve/Carry',15],
+      ['Steadiness',15],
+      ['Problem Solving',15],
+      ['Overall Spaniel Character',10]
+    ]
+  }
+};
+
+function ensureSpanielControls() {
+  if (!$('herdingPanel') || $('spanielClubControls')) return;
+  const wrapper=document.createElement('div');
+  wrapper.id='spanielClubControls';
+  wrapper.className='hidden';
+  wrapper.innerHTML=`
+    <div class="ss-grid two">
+      <div class="ss-field">
+        <label>Spaniel Show Level</label>
+        <select id="spanielShowLevel">
+          <option value="regular">Regular Show</option>
+          <option value="championship">Championship Show</option>
+        </select>
+        <small>The Complete Spaniel Challenge is available only at Championship Shows.</small>
+      </div>
+      <div class="ss-field" id="spanielDivisionField">
+        <label>Spaniel Division</label>
+        <select id="spanielDivision">
+          <option value="hunting">Hunting / Working Spaniels</option>
+          <option value="companion">Companion Spaniels</option>
+        </select>
+      </div>
+    </div>
+    <div class="ss-field hidden" id="spanielWorkingField">
+      <label>Working Class</label>
+      <select id="spanielWorkingActivity"></select>
+      <small>Top three count toward DpS/VtS only when the class has at least 6 dogs.</small>
+    </div>
+    <div class="ss-field hidden" id="spanielChallengeField">
+      <label>Challenge Class</label>
+      <select id="spanielChallengeType"></select>
+      <small>70/100 or higher is a Spaniel Club Challenge Qualification.</small>
+    </div>
+  `;
+  $('herdingPanel').appendChild(wrapper);
+  ['spanielShowLevel','spanielDivision','spanielWorkingActivity','spanielChallengeType'].forEach(id=>{
+    $(id)?.addEventListener('change',()=>{ renderSpanielControls(); captureWorkspaceState(); });
+  });
+}
+
+function renderSpanielWorkingOptions() {
+  const sel=$('spanielWorkingActivity');
+  if(!sel) return;
+  const division=$('spanielDivision')?.value || 'hunting';
+  const opts=division==='companion'
+    ? [['tracking','Tracking'],['scent_work','Scent Work'],['shed_dog','Shed Dog']]
+    : [['hunting','Hunting'],['retrieving','Retrieving'],['falconry','Falconry'],['shed_dog','Shed Dog']];
+  const previous=sel.value;
+  sel.innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  if([...sel.options].some(o=>o.value===previous)) sel.value=previous;
+}
+
+function renderSpanielControls() {
+  ensureSpanielControls();
+  const wrapper=$('spanielClubControls');
+  if(!wrapper) return;
+  const active=activeRandomizerTab==='specialty' && $('showFormat')?.value==='spaniel_club';
+  wrapper.className=active?'':'hidden';
+  if(!active) return;
+  renderSpanielWorkingOptions();
+  const event=$('herdingEventType')?.value || 'conformation';
+  $('spanielWorkingField').className=event==='working'?'ss-field':'hidden';
+  $('spanielChallengeField').className=event==='challenge'?'ss-field':'hidden';
+  $('spanielDivisionField').className=event==='working'?'ss-field':'hidden';
+  const challengeSel=$('spanielChallengeType');
+  if(challengeSel && !challengeSel.options.length){
+    challengeSel.innerHTML=Object.entries(SS_SPANIEL_CHALLENGES)
+      .filter(([key])=>key!=='complete')
+      .map(([key,c])=>`<option value="${key}">${escapeHtml(c.label)}</option>`).join('');
+  }
+}
+
+function spanielScoreBand(total){
+  if(total>=70) return {qualified:true,label:'Qualified'};
+  if(total>=50) return {qualified:false,label:'Pass — Not Qualified'};
+  if(total>=30) return {qualified:false,label:'Developing — Not Qualified'};
+  return {qualified:false,label:'Failed'};
+}
+
+function spanielChallengeScores(challenge){
+  // One underlying performance factor keeps a dog's category scores coherent,
+  // while category jitter prevents every section from looking identical.
+  const ability=0.25 + Math.random()*0.75;
+  return challenge.categories.map(([label,max])=>{
+    const jitter=(Math.random()-0.5)*0.24;
+    const ratio=Math.max(0,Math.min(1,ability+jitter));
+    return {label,max,score:Math.max(0,Math.min(max,Math.round(max*ratio)))};
+  });
+}
+
+function spanielWorkingLabel(key){
+  return ({hunting:'Hunting',retrieving:'Retrieving',falconry:'Falconry',shed_dog:'Shed Dog',tracking:'Tracking',scent_work:'Scent Work'})[key] || key;
+}
+
+function spanielRecordText(record){
+  return cleanLine([record.class,record.class_name,record.placement,record.score_label,record.activity_key,record.association_event_type].filter(Boolean).join(' ')).toLowerCase();
+}
+function spanielPriorFamily(record){
+  const t=spanielRecordText(record);
+  if(/retriev/.test(t)) return 'retrieving';
+  if(/\bhunting\b/.test(t)) return 'hunting';
+  if(/falconry/.test(t)) return 'falconry';
+  if(/shed\s*dog|sheddog/.test(t)) return 'shed dog';
+  if(/tracking/.test(t)) return 'tracking';
+  if(/scent\s*work|scentwork/.test(t)) return 'scent work';
+  return null;
+}
+function spanielPriorClassSize(record){
+  const t=[record.class,record.class_name,record.score_label].filter(Boolean).join(' ');
+  const m=t.match(/\b(\d+)\s*(?:entries|entry|dogs)\b/i) || t.match(/\((\d+)\)/);
+  return m?Number(m[1]):0;
+}
+function spanielPriorPlacement(record){
+  const p=cleanLine(record.placement).toLowerCase();
+  if(/^(1|1st|first)\b/.test(p)) return 1;
+  if(/^(2|2nd|second)\b/.test(p)) return 2;
+  if(/^(3|3rd|third)\b/.test(p)) return 3;
+  return null;
+}
+async function spanielHasDpS(supabase, animalId){
+  const {data,error}=await supabase.from('show_records')
+    .select('class,placement,score_label,activity_key,association_event_type,passed')
+    .eq('animal_id',animalId).eq('association_key','spaniel_club');
+  if(error) throw new Error('Spaniel Club eligibility load failed: '+error.message);
+  const rows=data||[];
+  const bob=rows.some(r=>/best of breed|\bbob\b/i.test(cleanLine(r.placement)));
+  const challengeQs=rows.filter(r=>/challenge/i.test(spanielRecordText(r)) && (r.passed===true || /qualified|pass/i.test(cleanLine(r.score_label)) && !/not qualified|fail/i.test(cleanLine(r.score_label)))).length;
+  const huntingFamilies=new Set(['hunting','retrieving','falconry','shed dog']);
+  const companionFamilies=new Set(['tracking','scent work','shed dog']);
+  const qualifying=rows.filter(r=>{
+    const p=spanielPriorPlacement(r); return p && p<=3 && spanielPriorClassSize(r)>=6;
+  });
+  const hasHunting=qualifying.some(r=>huntingFamilies.has(spanielPriorFamily(r)));
+  const hasCompanion=qualifying.some(r=>companionFamilies.has(spanielPriorFamily(r)));
+  return bob && challengeQs>=2 && (hasHunting || hasCompanion);
+}
+
+async function runSpanielClub(rawData, showData){
+  const event=showData.specialtyEventType || 'conformation';
+  const lines=[];
+  const records=[];
+
+  if(event==='conformation'){
+    const result=runConformation(rawData,Object.assign({},showData,{showType:'conformation'}));
+    (result.records||[]).forEach(r=>{
+      r.association_key='spaniel_club';
+      r.association_event_type='conformation';
+      r.show_scope='association';
+      // Spaniel Club uses BIS terminology; do not convert its final to BISS.
+      if(cleanLine(r.placement)==='Best in Show Specialty') r.placement='Best in Show';
+      if(cleanLine(r.placement)==='Reserve Best in Show Specialty') r.placement='Reserve Best in Show';
+    });
+    result.lines.unshift(bold('Spaniel Club Conformation'));
+    return result;
+  }
+
+  const entries=herdingEntryLines(rawData);
+  if(!entries.length) throw new Error('No valid Spaniel Club entries found. Use: Animal Name - Owner');
+
+  if(event==='working'){
+    const division=$('spanielDivision')?.value || 'hunting';
+    const activityKey=$('spanielWorkingActivity')?.value || (division==='companion'?'tracking':'hunting');
+    const activity=spanielWorkingLabel(activityKey);
+    const shuffled=shuffle(entries.slice());
+    const classSize=shuffled.length;
+    addLine(lines,bold('Spaniel Club Working Class'));
+    addLine(lines,bold((division==='companion'?'Companion':'Hunting / Working')+' Spaniels — '+activity));
+    addLine(lines,'Class Size: '+classSize+' dogs');
+    addLine(lines,'');
+    shuffled.forEach((name,index)=>{
+      const place=index+1;
+      addLine(lines,placementLabel(place)+' '+name);
+      records.push({
+        show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',association_event_type:'working',
+        activity_key:activityKey,class_name:'Spaniel Club Working - '+(division==='companion'?'Companion':'Hunting')+' - '+activity+' - '+classSize+' dogs',
+        placement:String(place),animal_name:name,points:0,score:null,max_score:null,passed:null,
+        score_label:'Division: '+(division==='companion'?'Companion':'Hunting')+' • '+classSize+' dogs'
+      });
+    });
+    return {lines,records};
+  }
+
+  let challengeKey=$('spanielChallengeType')?.value || 'natural_ability';
+  if(event==='complete_challenge') challengeKey='complete';
+  const challenge=SS_SPANIEL_CHALLENGES[challengeKey];
+  if(!challenge) throw new Error('Choose a valid Spaniel Club Challenge.');
+
+  if(event==='complete_challenge' && ($('spanielShowLevel')?.value || 'regular')!=='championship'){
+    throw new Error('The Complete Spaniel Challenge is only offered at a Spaniel Club Championship Show.');
+  }
+
+  const supabase=getSupabase();
+  let animalMap=null;
+  if(event==='complete_challenge'){
+    if(!supabase) throw new Error('Supabase is not ready.');
+    animalMap=await loadAnimalsMap(supabase);
+  }
+
+  addLine(lines,bold(challenge.label));
+  addLine(lines,'Qualification: 70/100');
+  addLine(lines,'');
+
+  for(const rawEntry of entries){
+    if(event==='complete_challenge'){
+      const match=findAnimal(rawEntry,animalMap);
+      if(match.status!=='matched'){
+        addLine(lines,bold(rawEntry)); addLine(lines,'DECLINED — Exact registry dog not found.'); addLine(lines,'');
+        continue;
+      }
+      const eligible=await spanielHasDpS(supabase,match.animal.id);
+      if(!eligible){
+        addLine(lines,bold(rawEntry)); addLine(lines,'DECLINED — Requires an earned DpS, VtS, or CSp title.'); addLine(lines,'');
+        continue;
+      }
+    }
+
+    const scores=spanielChallengeScores(challenge);
+    const total=scores.reduce((sum,row)=>sum+row.score,0);
+    const band=spanielScoreBand(total);
+    addLine(lines,bold(rawEntry));
+    scores.forEach(row=>addLine(lines,row.label+': '+row.score+'/'+row.max));
+    addLine(lines,bold(total+'/100 — '+band.label.toUpperCase()));
+    addLine(lines,'');
+    const breakdown=scores.map(row=>row.label+': '+row.score+'/'+row.max).join('; ');
+    records.push({
+      show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',
+      association_event_type:event==='complete_challenge'?'complete_challenge':'challenge',activity_key:null,
+      class_name:'Spaniel Club Challenge - '+challenge.label,placement:band.qualified?'Qualified':'Not Qualified',animal_name:rawEntry,
+      points:0,score:total,max_score:100,passed:band.qualified,
+      score_label:band.label+' | '+breakdown
+    });
+  }
+  if(!records.length && event==='complete_challenge') throw new Error('No eligible Complete Spaniel Challenge entries were found.');
+  return {lines,records};
 }
 
 function ensureEnduranceControls() {
@@ -2428,7 +2753,10 @@ function updatePhase1UI() {
   const isHunting =
     activeRandomizerTab === 'specialty' &&
     selectedSpecialtySystem === 'hunting_club';
-  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance || isHunting;
+  const isSpaniel =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'spaniel_club';
+  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance || isHunting || isSpaniel;
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
@@ -2482,6 +2810,16 @@ function updatePhase1UI() {
       select.innerHTML = '<option value="field_test">Hunting Field Test</option>';
       ensureHuntingControls();
       renderHuntingControls();
+    } else if (isSpaniel) {
+      select.innerHTML = [
+        ['conformation','Spaniel Club Conformation'],
+        ['working','Working Class'],
+        ['challenge','Challenge Class'],
+        ['complete_challenge','Complete Spaniel Challenge']
+      ].map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
+      ensureSpanielControls();
+      renderSpanielControls();
     }
   }
 
@@ -2495,6 +2833,7 @@ function updatePhase1UI() {
   $('herdingPanel').className = isSpecialtyRunner ? 'ss-setup-card' : 'hidden';
   if (isSpecialtyRunner) relabelSpecialtyPanel(selectedSpecialtySystem);
   if (isHunting) renderHuntingControls();
+  if (isSpaniel) renderSpanielControls();
   $('championshipModeField').className = isSpecialtyRunner ? 'hidden' : 'ss-field';
   $('championshipPanel').className = isChampionship ? 'ss-championship-panel' : 'hidden';
   $('normalSeriesFields').className = isChampionship ? 'hidden' : 'ss-series-grid';
@@ -4962,9 +5301,11 @@ async function randomizeShow() {
           ? 'endurance_club'
           : specialtySystemKey === 'hunting_club'
             ? 'hunting_club'
-            : null,
+            : specialtySystemKey === 'spaniel_club'
+              ? 'spaniel_club'
+              : null,
     associationEventType:
-      ['icelandic_horse_club','endurance_club','hunting_club'].includes(specialtySystemKey)
+      ['icelandic_horse_club','endurance_club','hunting_club','spaniel_club'].includes(specialtySystemKey)
         ? specialtyEventValue
         : null
   };
@@ -5013,6 +5354,8 @@ async function randomizeShow() {
       result = await runEnduranceClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'hunting_club') {
       result = await runHuntingClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'spaniel_club') {
+      result = await runSpanielClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'herding_club') {
       result = runHerdingClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && /^testing_system_/.test(specialtySystemKey || '')) {
