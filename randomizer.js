@@ -4650,21 +4650,63 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
         {key:'cgca',code:'CGCA',label:'Canine Good Citizen Advanced'},
         {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
       ];
-      const passed=new Set();
-      records.forEach(r=>{
-        if(r.passed!==true)return;
-        const key=cleanLine(r.activity_key).toLowerCase();
-        const cls=cleanLine(r.class).toLowerCase();
-        const lbl=cleanLine(r.score_label).toLowerCase();
-        levels.forEach(level=>{
-          if(key===level.key || cls===level.label.toLowerCase() || lbl===level.code.toLowerCase()) passed.add(level.key);
-        });
+
+      /*
+        CGC PROGRESSION SAFETY
+        ----------------------
+        Entry-builder lines normally include the animal's currently earned titles.
+        Use that displayed CGC title as the authoritative progression marker so old,
+        missing, or accidentally mis-tiered show_records cannot move a dog backward
+        or forward incorrectly.
+
+        Examples:
+          CGC  Dog Name -> next test is CGCB / Bronze
+          CGCS Dog Name -> next test is CGCG / Gold
+
+        When no CGC title is present on the entry, fall back to passed historical
+        records. A higher legitimate historical pass implies the prerequisite tiers.
+      */
+      const ownerFreeEntry=cleanLine(stripEntryOwner(rawEntry));
+      let displayedLevelIndex=-1;
+
+      levels.forEach((level,index)=>{
+        const codeRe=new RegExp('(?:^|\\s)'+level.code.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')+'\\.?(?=\\s|$)','i');
+        if(codeRe.test(ownerFreeEntry)) displayedLevelIndex=Math.max(displayedLevelIndex,index);
       });
+
+      const passed=new Set();
+
+      if(displayedLevelIndex>=0){
+        // The visible/current title wins over potentially bad legacy records.
+        for(let i=0;i<=displayedLevelIndex;i++) passed.add(levels[i].key);
+      }else{
+        let highestHistoricalIndex=-1;
+
+        records.forEach(r=>{
+          if(r.passed!==true)return;
+          const key=cleanLine(r.activity_key).toLowerCase();
+          const cls=cleanLine(r.class).toLowerCase();
+          const lbl=cleanLine(r.score_label).toLowerCase();
+
+          levels.forEach((level,index)=>{
+            if(
+              key===level.key ||
+              cls===level.label.toLowerCase() ||
+              lbl===level.code.toLowerCase()
+            ){
+              highestHistoricalIndex=Math.max(highestHistoricalIndex,index);
+            }
+          });
+        });
+
+        // Earning a higher level necessarily satisfies every prerequisite below it.
+        for(let i=0;i<=highestHistoricalIndex;i++) passed.add(levels[i].key);
+      }
+
       cgcLevel=levels.find(level=>!passed.has(level.key))||null;
-      if(!cgcLevel){declined.push({entry:rawEntry,reason:'All CGC levels already earned'});continue;}
-      const i=levels.findIndex(level=>level.key===cgcLevel.key);
-      if(i>0 && !passed.has(levels[i-1].key)){
-        declined.push({entry:rawEntry,reason:'Previous CGC level has not been earned'});continue;
+      if(!cgcLevel){
+        declined.push({entry:rawEntry,reason:'All CGC levels already earned'});
+        continue;
       }
     }
     accepted.push({rawEntry,animal,cgcLevel});
