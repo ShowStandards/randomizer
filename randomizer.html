@@ -2,23 +2,18 @@
   <div class="ss-randomizer-head">
     <div class="ss-kicker">Show Standard</div>
     <h1>Show Randomizer</h1>
-    <div class="version-note">Development • Phase 1 — Standard Shows</div>
+    <div class="version-note">CGC CLASS HEADERS LIVE • 2026-09-03 • BUILD B</div>
   </div>
 
   <div class="ss-engine-tabs" role="tablist" aria-label="Randomizer types">
     <button class="ss-engine-tab active" type="button" data-engine-tab="conformation" aria-selected="true">
-      <span>Conformation</span>
-      <small>Standard conformation system</small>
+      <span>Conformation</span><small>Standard conformation system</small>
     </button>
-
     <button class="ss-engine-tab" type="button" data-engine-tab="activities" aria-selected="false">
-      <span>Standard Activities</span>
-      <small>Standard activity points &amp; titles</small>
+      <span>Standard Activities</span><small>Standard activity points &amp; titles</small>
     </button>
-
     <button class="ss-engine-tab" type="button" data-engine-tab="specialty" aria-selected="false">
-      <span>Specialty / Associations</span>
-      <small>Independent club &amp; registry systems</small>
+      <span>Specialty / Associations</span><small>Independent club &amp; registry systems</small>
     </button>
   </div>
 
@@ -40,12 +35,9 @@
           <option value="horse">Horse</option>
         </select>
       </div>
-
       <div class="ss-field">
         <label id="showFormatLabel" for="showFormat">Show Format</label>
-        <select id="showFormat">
-          <option value="conformation">All Breed Shows</option>
-        </select>
+        <select id="showFormat"><option value="conformation">All Breed Shows</option></select>
         <small id="showFormatHelp"></small>
       </div>
     </div>
@@ -70,19 +62,16 @@
 
     <div id="specialtySystemNote" class="hidden">
       <strong>Specialty / Association engine</strong>
-      <span>Herding Club is active now. Hunter Jumper, Eventing, Endurance, Gaiting, and future registry systems will be added here as separate rule engines.</span>
+      <span>Independent association and club systems use their own rules.</span>
     </div>
 
     <div id="activityOptionsPanel" class="hidden">
       <div class="ss-grid two">
         <div class="ss-field">
           <label for="activityKey">Activity</label>
-          <select id="activityKey">
-            <option value="__MIXED__">Loading activities…</option>
-          </select>
-          <small>Select an activity for the Championship show, or leave as All Activities to include every activity.</small>
+          <select id="activityKey"><option value="__MIXED__">Loading activities…</option></select>
+          <small>Select an activity for Championship mode, or leave as All Activities.</small>
         </div>
-
         <div class="ss-field">
           <label for="activityResultMethod">Result Method</label>
           <select id="activityResultMethod">
@@ -107,7 +96,7 @@
           <option value="stakes">Stakes Trial</option>
         </select>
       </div>
-      <small>Instinct Testing uses Animal Name - Owner entries. Stakes preserve Puppy, Beginners, Advanced, Expert, and stock classes.</small>
+      <small>Instinct Testing uses Animal Name - Owner entries. Stakes preserve level and stock classes.</small>
     </div>
   </section>
 
@@ -120,7 +109,6 @@
         <label for="showName">Show Name</label>
         <input type="text" id="showName" placeholder="Spring Classic 2026">
       </div>
-
       <div class="ss-field">
         <label for="bannerUrl">Banner Image URL</label>
         <input type="text" id="bannerUrl" placeholder="Optional">
@@ -133,7 +121,6 @@
         <input type="text" id="seriesName" placeholder="Optional — e.g. Summer Circuit">
         <small>Use the same series name on source shows if they may feed a Championship later.</small>
       </div>
-
       <div class="ss-field">
         <label for="seriesRound">Series Round</label>
         <input type="number" id="seriesRound" min="1" placeholder="Optional">
@@ -148,11 +135,8 @@
     <div class="ss-grid two">
       <div class="ss-field">
         <label for="championshipSeries">Source Series</label>
-        <select id="championshipSeries">
-          <option value="">Select a series or saved shows</option>
-        </select>
+        <select id="championshipSeries"><option value="">Select a series or saved shows</option></select>
       </div>
-
       <div class="ss-field">
         <label for="championshipQualification">Qualification Rule</label>
         <select id="championshipQualification"></select>
@@ -166,21 +150,17 @@
       </div>
     </div>
 
-    <button id="championshipPreviewButton" class="ss-button secondary full" type="button">
-      🔎 Preview Qualifiers
-    </button>
-
+    <button id="championshipPreviewButton" class="ss-button secondary full" type="button">🔎 Preview Qualifiers</button>
     <div id="championshipPreview" class="hidden"></div>
   </section>
 
   <section class="ss-setup-card" id="entriesField">
     <div class="ss-kicker">Entries</div>
     <h2>Paste Show Entries</h2>
-
     <div class="ss-field">
       <label for="rawData">Paste Entries</label>
       <textarea id="rawData" placeholder="Paste entries here."></textarea>
-      <small>Existing Show Standard conformation and activity entry formats remain supported during the rebuild.</small>
+      <small>Existing Show Standard conformation and activity entry formats remain supported.</small>
     </div>
   </section>
 
