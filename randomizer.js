@@ -2,7 +2,7 @@
   <div class="ss-randomizer-head">
     <div class="ss-kicker">Show Standard</div>
     <h1>Show Randomizer</h1>
-    <div class="version-note">CGC FIX LIVE • 2026-09-03</div>
+    <div class="version-note">CGC FIX LIVE • 2026-09-03 • BUILD A</div>
   </div>
 
   <div class="ss-engine-tabs" role="tablist" aria-label="Randomizer types">
@@ -214,8 +214,9 @@ body.ss-dark-mode .ss-button.secondary{background:#242b2b;color:#d9e5e4;border-c
 <script>
 (() => {
 'use strict';
+console.log('SS RANDOMIZER BUILD: CGC FIX LIVE 2026-09-03 BUILD A');
 
-// Show Standard Randomizer — CGC FIX LIVE 2026-09-03
+// Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
 
 // =============================================================
