@@ -196,6 +196,8 @@ const SS_ENTRY_TITLE_CODES = [
   'RCCH','RCN','RCI','RCA','RCE',
   'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
   'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
+  // CGC progression — longest first so CGCS/CGCG/etc. are never mistaken for CGC
+  'CGCU','CGCA','CGCG','CGCS','CGCB','CGC',
   'FFA','VBC','VNC','TTC','TTD','ATC',
   'CIHDM','IHDM','ENJ\\d*','ENN\\d*','ENO\\d*','GDM','GDI','GD3L','GDT','GYR',
   'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
@@ -4941,6 +4943,81 @@ function runIcelandicClub(rawData, showData) {
   throw new Error('Unknown Icelandic Horse Club event type.');
 }
 
+const SS_CGC_LEVELS = Object.freeze([
+  {key:'cgc', code:'CGC', label:'Canine Good Citizen'},
+  {key:'cgcb',code:'CGCB',label:'Canine Good Citizen Bronze'},
+  {key:'cgcs',code:'CGCS',label:'Canine Good Citizen Silver'},
+  {key:'cgcg',code:'CGCG',label:'Canine Good Citizen Gold'},
+  {key:'cgca',code:'CGCA',label:'Canine Good Citizen Advanced'},
+  {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
+]);
+
+const SS_CGC_INDEX_BY_CODE = Object.freeze(
+  SS_CGC_LEVELS.reduce((out, level, index) => {
+    out[level.code.toLowerCase()] = index;
+    return out;
+  }, {})
+);
+
+function highestDisplayedCgcIndex(rawEntry) {
+  // Entry Builder lines contain current earned titles. Match complete title tokens only,
+  // and use the HIGHEST one found. The alternation is deliberately longest-first.
+  const text = cleanLine(stripEntryOwner(rawEntry));
+  const re = /(?:^|\s)(CGCU|CGCA|CGCG|CGCS|CGCB|CGC)\.?(?=\s|$)/ig;
+  let highest = -1;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const index = SS_CGC_INDEX_BY_CODE[String(match[1] || '').toLowerCase()];
+    if (Number.isInteger(index)) highest = Math.max(highest, index);
+  }
+  return highest;
+}
+
+function highestHistoricalCgcIndex(records) {
+  let highest = -1;
+
+  (records || []).forEach(record => {
+    if (record?.passed !== true) return;
+
+    const key = cleanLine(record.activity_key).toLowerCase();
+    const cls = cleanLine(record.class).toLowerCase();
+    const lbl = cleanLine(record.score_label).toLowerCase();
+
+    SS_CGC_LEVELS.forEach((level, index) => {
+      if (
+        key === level.key ||
+        cls === level.label.toLowerCase() ||
+        lbl === level.code.toLowerCase()
+      ) {
+        highest = Math.max(highest, index);
+      }
+    });
+  });
+
+  return highest;
+}
+
+function nextCgcLevel(rawEntry, records) {
+  /*
+    The CGC ladder is strictly linear:
+      CGC -> CGCB -> CGCS -> CGCG -> CGCA -> CGCU
+
+    A displayed/current CGC title is authoritative because the entry builder reflects
+    the dog's current registered title. Historical records are used only when no CGC
+    title is present on the submitted entry. We NEVER search for an arbitrary missing
+    tier; we move exactly one step above the highest earned tier.
+  */
+  const displayedIndex = highestDisplayedCgcIndex(rawEntry);
+  const earnedIndex = displayedIndex >= 0
+    ? displayedIndex
+    : highestHistoricalCgcIndex(records);
+
+  const nextIndex = earnedIndex + 1;
+  return nextIndex >= 0 && nextIndex < SS_CGC_LEVELS.length
+    ? SS_CGC_LEVELS[nextIndex]
+    : null;
+}
+
 async function loadTestingEligibilityContext(rawData, showData, eventType) {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
@@ -4981,68 +5058,7 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
 
     let cgcLevel=null;
     if(eventType==='cgc'){
-      const levels=[
-        {key:'cgc',code:'CGC',label:'Canine Good Citizen'},
-        {key:'cgcb',code:'CGCB',label:'Canine Good Citizen Bronze'},
-        {key:'cgcs',code:'CGCS',label:'Canine Good Citizen Silver'},
-        {key:'cgcg',code:'CGCG',label:'Canine Good Citizen Gold'},
-        {key:'cgca',code:'CGCA',label:'Canine Good Citizen Advanced'},
-        {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
-      ];
-
-      /*
-        CGC PROGRESSION SAFETY
-        ----------------------
-        Entry-builder lines normally include the animal's currently earned titles.
-        Use that displayed CGC title as the authoritative progression marker so old,
-        missing, or accidentally mis-tiered show_records cannot move a dog backward
-        or forward incorrectly.
-
-        Examples:
-          CGC  Dog Name -> next test is CGCB / Bronze
-          CGCS Dog Name -> next test is CGCG / Gold
-
-        When no CGC title is present on the entry, fall back to passed historical
-        records. A higher legitimate historical pass implies the prerequisite tiers.
-      */
-      const ownerFreeEntry=cleanLine(stripEntryOwner(rawEntry));
-      let displayedLevelIndex=-1;
-
-      levels.forEach((level,index)=>{
-        const codeRe=new RegExp('(?:^|\\s)'+level.code.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')+'\\.?(?=\\s|$)','i');
-        if(codeRe.test(ownerFreeEntry)) displayedLevelIndex=Math.max(displayedLevelIndex,index);
-      });
-
-      const passed=new Set();
-
-      if(displayedLevelIndex>=0){
-        // The visible/current title wins over potentially bad legacy records.
-        for(let i=0;i<=displayedLevelIndex;i++) passed.add(levels[i].key);
-      }else{
-        let highestHistoricalIndex=-1;
-
-        records.forEach(r=>{
-          if(r.passed!==true)return;
-          const key=cleanLine(r.activity_key).toLowerCase();
-          const cls=cleanLine(r.class).toLowerCase();
-          const lbl=cleanLine(r.score_label).toLowerCase();
-
-          levels.forEach((level,index)=>{
-            if(
-              key===level.key ||
-              cls===level.label.toLowerCase() ||
-              lbl===level.code.toLowerCase()
-            ){
-              highestHistoricalIndex=Math.max(highestHistoricalIndex,index);
-            }
-          });
-        });
-
-        // Earning a higher level necessarily satisfies every prerequisite below it.
-        for(let i=0;i<=highestHistoricalIndex;i++) passed.add(levels[i].key);
-      }
-
-      cgcLevel=levels.find(level=>!passed.has(level.key))||null;
+      cgcLevel = nextCgcLevel(rawEntry, records);
       if(!cgcLevel){
         declined.push({entry:rawEntry,reason:'All CGC levels already earned'});
         continue;
@@ -5071,11 +5087,38 @@ async function runTestingSystem(rawData,showData){
   const lines=[],records=[];
   const species=cleanLine(showData.species).toLowerCase();
   const speciesSuffix=species==='dog'?'D':species==='cat'?'C':'H';
-  const heading=eventType==='temperament'?'Temperament Test':eventType==='therapy'?'Therapy Animal Test':'Canine Good Citizen Test';
-  addLine(lines,bold(heading)); addLine(lines,'');
 
-  accepted.forEach(item=>{
-    if(eventType==='temperament'||eventType==='therapy'){
+  if(eventType==='cgc'){
+    addLine(lines,bold('Canine Good Citizen Testing'));
+    addLine(lines,'');
+
+    // Each progression tier is its own class for clean, readable results.
+    SS_CGC_LEVELS.forEach(level=>{
+      const classEntries=accepted.filter(item=>item.cgcLevel?.key===level.key);
+      if(!classEntries.length) return;
+
+      addLine(lines,bold(level.label+' ('+level.code+')'));
+      classEntries.forEach(item=>{
+        const passed=Math.random()<0.5;
+        addLine(lines,item.rawEntry+' - '+(passed?'Pass':'Fail'));
+        activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
+        const r=records[records.length-1];
+        r.activity_key=level.key;
+        r.class_name=level.label;
+        r.points=0;
+        r.score=null;
+        r.max_score=null;
+        r.passed=passed;
+        r.score_label=passed?level.code:'Fail';
+      });
+      addLine(lines,'');
+    });
+  }else{
+    const heading=eventType==='temperament'?'Temperament Test':'Therapy Animal Test';
+    addLine(lines,bold(heading));
+    addLine(lines,'');
+
+    accepted.forEach(item=>{
       const score=Math.floor(Math.random()*201);
       const passed=score>=110;
       const code=(eventType==='temperament'?'TT':'TA')+speciesSuffix;
@@ -5084,21 +5127,14 @@ async function runTestingSystem(rawData,showData){
       activityRecord(records,showData,className,className,{name:item.rawEntry,score,passed},1,passed?'Pass':'Fail');
       const r=records[records.length-1];
       r.activity_key=eventType==='temperament'?'temperament_test':'therapy_animal';
-      r.class_name=className; r.points=0; r.score=score; r.max_score=200; r.passed=passed;
+      r.class_name=className;
+      r.points=0;
+      r.score=score;
+      r.max_score=200;
+      r.passed=passed;
       r.score_label=passed?code:'Fail';
-    }else{
-      const level=item.cgcLevel;
-      if (!level) {
-        throw new Error('CGC level could not be resolved. This entry was routed to CGC testing unexpectedly.');
-      }
-      const passed=Math.random()<0.5;
-      addLine(lines,item.rawEntry+' - '+level.label+' ('+level.code+') - '+(passed?'Pass':'Fail'));
-      activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
-      const r=records[records.length-1];
-      r.activity_key=level.key; r.class_name=level.label; r.points=0; r.score=null; r.max_score=null; r.passed=passed;
-      r.score_label=passed?level.code:'Fail';
-    }
-  });
+    });
+  }
 
   if(declined.length){
     addLine(lines,''); addLine(lines,bold('Declined Entries'));
