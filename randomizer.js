@@ -1,8 +1,222 @@
+<div class="ss-randomizer">
+  <div class="ss-randomizer-head">
+    <div class="ss-kicker">Show Standard</div>
+    <h1>Show Randomizer</h1>
+    <div class="version-note">Development • Phase 1 — Standard Shows</div>
+  </div>
+
+  <div class="ss-engine-tabs" role="tablist" aria-label="Randomizer types">
+    <button class="ss-engine-tab active" type="button" data-engine-tab="conformation" aria-selected="true">
+      <span>Conformation</span><small>Standard conformation system</small>
+    </button>
+    <button class="ss-engine-tab" type="button" data-engine-tab="activities" aria-selected="false">
+      <span>Standard Activities</span><small>Standard activity points &amp; titles</small>
+    </button>
+    <button class="ss-engine-tab" type="button" data-engine-tab="specialty" aria-selected="false">
+      <span>Specialty / Associations</span><small>Independent club &amp; registry systems</small>
+    </button>
+  </div>
+
+  <section class="ss-setup-card">
+    <div class="ss-card-title">
+      <div>
+        <div class="ss-kicker" id="engineKicker">Conformation</div>
+        <h2 id="engineHeading">Build Your Conformation Show</h2>
+      </div>
+      <div id="setupSummary" class="ss-summary-pill">Dog • Conformation • All Breed Shows • Regular</div>
+    </div>
+
+    <div class="ss-grid two">
+      <div class="ss-field">
+        <label for="showSpecies">Show Species</label>
+        <select id="showSpecies">
+          <option value="dog">Dog</option>
+          <option value="cat">Cat</option>
+          <option value="horse">Horse</option>
+        </select>
+      </div>
+      <div class="ss-field">
+        <label id="showFormatLabel" for="showFormat">Show Format</label>
+        <select id="showFormat"><option value="conformation">All Breed Shows</option></select>
+        <small id="showFormatHelp"></small>
+      </div>
+    </div>
+
+    <div class="hidden">
+      <select id="eventCategory" aria-hidden="true">
+        <option value="conformation">Conformation</option>
+        <option value="activities">Activities</option>
+        <option value="herding">Herding Club</option>
+      </select>
+    </div>
+
+    <div class="ss-grid one">
+      <div class="ss-field" id="championshipModeField">
+        <label for="championshipMode">Championship Mode</label>
+        <select id="championshipMode">
+          <option value="regular">Regular Show</option>
+          <option value="championship">Championship Show</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="specialtySystemNote" class="hidden">
+      <strong>Specialty / Association engine</strong>
+      <span>Independent association and club systems use their own rules.</span>
+    </div>
+
+    <div id="activityOptionsPanel" class="hidden">
+      <div class="ss-grid two">
+        <div class="ss-field">
+          <label for="activityKey">Activity</label>
+          <select id="activityKey"><option value="__MIXED__">Loading activities…</option></select>
+          <small>Select an activity for Championship mode, or leave as All Activities.</small>
+        </div>
+        <div class="ss-field">
+          <label for="activityResultMethod">Result Method</label>
+          <select id="activityResultMethod">
+            <option value="placement">Placement Based</option>
+            <option value="scored">Scored</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="ss-field hidden" id="maxScoreField">
+        <label for="maxScore">Maximum Score</label>
+        <input type="number" id="maxScore" value="100" min="1">
+      </div>
+    </div>
+
+    <div id="herdingPanel" class="hidden">
+      <h3>Herding Club</h3>
+      <div class="ss-field">
+        <label for="herdingEventType">Herding Event</label>
+        <select id="herdingEventType">
+          <option value="instinct">Instinct Testing</option>
+          <option value="stakes">Stakes Trial</option>
+        </select>
+      </div>
+      <small>Instinct Testing uses Animal Name - Owner entries. Stakes preserve level and stock classes.</small>
+    </div>
+  </section>
+
+  <section class="ss-setup-card">
+    <div class="ss-kicker">Show Details</div>
+    <h2>Information</h2>
+
+    <div class="ss-grid two">
+      <div class="ss-field">
+        <label for="showName">Show Name</label>
+        <input type="text" id="showName" placeholder="Spring Classic 2026">
+      </div>
+      <div class="ss-field">
+        <label for="bannerUrl">Banner Image URL</label>
+        <input type="text" id="bannerUrl" placeholder="Optional">
+      </div>
+    </div>
+
+    <div id="normalSeriesFields" class="ss-series-grid">
+      <div class="ss-field">
+        <label for="seriesName">Series Name</label>
+        <input type="text" id="seriesName" placeholder="Optional — e.g. Summer Circuit">
+        <small>Use the same series name on source shows if they may feed a Championship later.</small>
+      </div>
+      <div class="ss-field">
+        <label for="seriesRound">Series Round</label>
+        <input type="number" id="seriesRound" min="1" placeholder="Optional">
+      </div>
+    </div>
+  </section>
+
+  <section id="championshipPanel" class="hidden">
+    <div class="ss-kicker">Championship Mode</div>
+    <h2>Championship Qualifiers</h2>
+
+    <div class="ss-grid two">
+      <div class="ss-field">
+        <label for="championshipSeries">Source Series</label>
+        <select id="championshipSeries"><option value="">Select a series or saved shows</option></select>
+      </div>
+      <div class="ss-field">
+        <label for="championshipQualification">Qualification Rule</label>
+        <select id="championshipQualification"></select>
+      </div>
+    </div>
+
+    <div class="ss-field">
+      <label>Source Shows</label>
+      <div id="championshipShowList" class="ss-source-shows">
+        <small>Select a source series to load its shows.</small>
+      </div>
+    </div>
+
+    <button id="championshipPreviewButton" class="ss-button secondary full" type="button">🔎 Preview Qualifiers</button>
+    <div id="championshipPreview" class="hidden"></div>
+  </section>
+
+  <section class="ss-setup-card" id="entriesField">
+    <div class="ss-kicker">Entries</div>
+    <h2>Paste Show Entries</h2>
+    <div class="ss-field">
+      <label for="rawData">Paste Entries</label>
+      <textarea id="rawData" placeholder="Paste entries here."></textarea>
+      <small>Existing Show Standard conformation and activity entry formats remain supported.</small>
+    </div>
+  </section>
+
+  <div class="ss-action-bar">
+    <button id="ssRunButton" class="ss-button full" type="button">🎲 Randomize Show</button>
+    <button id="sortButton" class="ss-button secondary full" type="button">🔤 Sort Conformation Entries Only</button>
+    <button id="ssClearButton" class="ss-button secondary full" type="button">Clear</button>
+  </div>
+
+  <div id="ssMessages" class="hidden"></div>
+  <div id="resultsContainer" class="hidden"></div>
+</div>
+
+
+<style>
+.ss-randomizer{max-width:1040px;margin:40px auto;padding:30px;font-family:'Quicksand',Arial,sans-serif;background:#fff;border-radius:14px;border:1px solid rgba(70,137,134,.22);box-shadow:0 8px 22px rgba(0,0,0,.06)}
+.ss-randomizer h1{text-align:center;margin:0 0 12px;color:#2f6f6f;font-family:'Uchen',serif;font-size:30px;font-weight:normal;letter-spacing:.08em;text-transform:uppercase}
+.ss-randomizer h2,.ss-randomizer h3{color:#2f6f6f;font-family:'Barlow SC','Oswald',sans-serif;text-transform:uppercase}
+.version-note{text-align:center;font-size:12px;opacity:.65}
+.ss-kicker{color:#468986;font-family:'Barlow SC','Oswald',sans-serif;font-size:11px;font-weight:700;letter-spacing:.15em;text-transform:uppercase}
+.ss-randomizer-head{text-align:center;padding-bottom:18px;border-bottom:1px solid rgba(70,137,134,.18);margin-bottom:18px}
+.ss-engine-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:18px 0 22px;padding:7px;border:1px solid rgba(70,137,134,.18);border-radius:14px;background:rgba(70,137,134,.035)}
+.ss-engine-tab{appearance:none;width:100%;padding:11px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:#687575;text-align:left;cursor:pointer;font-family:'Quicksand',Arial,sans-serif}
+.ss-engine-tab span{display:block;font-size:12px;font-weight:800}.ss-engine-tab small{display:block;margin-top:3px;opacity:.75;font-size:10px}
+.ss-engine-tab.active{border-color:rgba(70,137,134,.28);background:#fff;color:#2f6f6f;box-shadow:0 3px 10px rgba(0,0,0,.05)}
+.ss-setup-card,#championshipPanel{padding:22px;margin-bottom:18px;border:1px solid rgba(70,137,134,.2);border-radius:15px;background:rgba(70,137,134,.025)}
+.ss-card-title{display:flex;align-items:center;justify-content:space-between;gap:14px;padding-bottom:12px;margin-bottom:16px;border-bottom:1px solid rgba(70,137,134,.14)}
+.ss-summary-pill{max-width:58%;padding:7px 12px;border-radius:999px;background:rgba(70,137,134,.1);color:#2f6f6f;font-size:11px;font-weight:700;text-align:right}
+.ss-grid{display:grid;gap:14px}.ss-grid.two,.ss-series-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ss-series-grid{display:grid;gap:14px}
+.ss-field{margin-bottom:14px}.ss-field label{display:block;margin-bottom:6px;color:#2f6f6f;font-family:'Barlow SC','Oswald',sans-serif;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.ss-field small{display:block;margin-top:5px;color:#6b7280;font-size:13px;line-height:1.4}
+.ss-field input,.ss-field select,.ss-field textarea{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid rgba(70,137,134,.28);border-radius:10px;background:#fff;color:#182020;font-family:'Quicksand',Arial,sans-serif;font-size:14px}
+.ss-field textarea{min-height:360px;resize:vertical;font-family:Consolas,Monaco,monospace;line-height:1.5}
+.ss-button{border:1px solid rgba(70,137,134,.35);background:#2f6f6f;color:#fff;border-radius:999px;cursor:pointer;font-family:'Quicksand',Arial,sans-serif;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:10px 18px}
+.ss-button.secondary{background:#fff;color:#2f6f6f}.ss-button.full{width:100%;margin-bottom:8px}.ss-button:disabled{background:#9ca3af;border-color:#9ca3af;cursor:not-allowed}
+.ss-results,.ss-message{margin-top:20px;border-radius:12px;padding:16px}.ss-results{background:rgba(70,137,134,.04);border:1px solid rgba(70,137,134,.18)}
+.ss-results-content{user-select:text;background:#fff;border:1px solid rgba(70,137,134,.18);border-radius:12px;padding:16px;line-height:1.55}
+.ss-message.success{background:rgba(70,137,134,.06);border:1px solid rgba(70,137,134,.18);color:#2f6f6f}.ss-message.error{background:#fff3f3;border:1px solid rgba(139,30,30,.2);color:#8b1e1e;white-space:pre-wrap}
+.ss-source-shows{max-height:220px;overflow-y:auto;padding:10px 12px;border:1px solid rgba(70,137,134,.18);border-radius:10px;background:#fff}
+.ss-preview-summary{margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(70,137,134,.08);color:#2f6f6f;font-size:13px;line-height:1.5}
+.ss-specialty-note{display:flex;flex-direction:column;gap:4px;padding:12px 14px;margin-top:5px;border:1px dashed rgba(70,137,134,.35);border-radius:10px;background:rgba(70,137,134,.055);color:#2f6f6f;font-size:12px;line-height:1.45}
+.hidden{display:none!important}
+body.ss-dark-mode .ss-randomizer{background:#1f2525;border-color:#3b4d4d;color:#f2f2f2}
+body.ss-dark-mode .ss-setup-card,body.ss-dark-mode #championshipPanel{background:#242b2b;border-color:#3b4d4d}
+body.ss-dark-mode .ss-field input,body.ss-dark-mode .ss-field select,body.ss-dark-mode .ss-field textarea,body.ss-dark-mode .ss-source-shows,body.ss-dark-mode .ss-results-content{background:#242b2b;color:#f2f2f2;border-color:#3b4d4d}
+body.ss-dark-mode .ss-button.secondary{background:#242b2b;color:#d9e5e4;border-color:#3b4d4d}
+@media(max-width:760px){.ss-engine-tabs,.ss-grid.two,.ss-series-grid{grid-template-columns:1fr}.ss-card-title{display:block}.ss-summary-pill{max-width:none;margin-top:8px;text-align:left}.ss-randomizer{padding:18px}}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
 (() => {
 'use strict';
 
 // Show Standard Randomizer — Development Phase 1
-// Standard conformation, activities, Herding, and Championship mode.
+// Standard conformation, activities, association systems, CGC progression, and Championship mode.
 
 // =============================================================
 // 1. CONFIG
@@ -196,7 +410,7 @@ const SS_ENTRY_TITLE_CODES = [
   'RCCH','RCN','RCI','RCA','RCE',
   'FFCH','FD','FDX','FDCH','FM','FMX','FMCH','FDGCH',
   'PTB','ITC','TAC','FOI','CAAI','CAGCH','SCCH',
-  // CGC progression — longest first so CGCS/CGCG/etc. are never mistaken for CGC
+  // Canine Good Citizen progression — longest first so exact title stripping is unambiguous.
   'CGCU','CGCA','CGCG','CGCS','CGCB','CGC',
   'FFA','VBC','VNC','TTC','TTD','ATC',
   'CIHDM','IHDM','ENJ\\d*','ENN\\d*','ENO\\d*','GDM','GDI','GD3L','GDT','GYR',
@@ -1517,6 +1731,7 @@ function captureWorkspaceState() {
     activityResultMethod: $('activityResultMethod') ? $('activityResultMethod').value : 'placement',
     maxScore: $('maxScore') ? $('maxScore').value : '100',
     herdingEventType: $('herdingEventType') ? $('herdingEventType').value : 'instinct',
+    enduranceHostConference: $('enduranceHostConference') ? $('enduranceHostConference').value : 'Western',
     showName: $('showName') ? $('showName').value : '',
     bannerUrl: $('bannerUrl') ? $('bannerUrl').value : '',
     seriesName: $('seriesName') ? $('seriesName').value : '',
@@ -2266,8 +2481,8 @@ function relabelSpecialtyPanel(systemKey) {
       title:'Hunting Club',
       event:'Hunting Event',
       help:'Run zero-point working Field Tests with independent quarry / environment specializations.'
-    },
-    spaniel_club: {
+    }
+    ,spaniel_club: {
       title:'Spaniel Club',
       event:'Spaniel Club Event',
       help:'Run Spaniel Club conformation, working classes, and scored Challenge Classes.'
@@ -2292,6 +2507,7 @@ function relabelSpecialtyPanel(systemKey) {
     help.textContent = config.help;
   }
 }
+
 
 const SS_SPANIEL_CHALLENGES = {
   natural_ability: {
@@ -2626,6 +2842,16 @@ function ensureEnduranceControls() {
       <small id="enduranceRaceMeta">Select a rated race.</small>
     </div>
 
+    <div class="ss-field hidden" id="enduranceHostConferenceField">
+      <label>Host Conference</label>
+      <select id="enduranceHostConference">
+        <option value="Western">Western</option>
+        <option value="Eastern">Eastern</option>
+        <option value="Both">Both</option>
+      </select>
+      <small>Required only for races marked Host Dependent.</small>
+    </div>
+
     <div class="ss-field" id="enduranceUnratedDistanceField">
       <label>Unrated Race Distance (km)</label>
       <input type="number" id="enduranceUnratedDistance" min="0" step="1" value="100">
@@ -2648,6 +2874,10 @@ function ensureEnduranceControls() {
   $('herdingPanel').appendChild(wrapper);
 
   $('enduranceRaceKey').addEventListener('change', updateEnduranceRaceMeta);
+  $('enduranceHostConference').addEventListener('change', () => {
+    updateEnduranceRaceMeta();
+    captureWorkspaceState();
+  });
   $('herdingEventType').addEventListener('change', renderEnduranceControls);
 }
 
@@ -2667,6 +2897,9 @@ function renderEnduranceControls() {
   const mode = $('herdingEventType')?.value || 'prospect';
   $('enduranceRaceField').className = mode === 'rated' ? 'ss-field' : 'hidden';
   $('enduranceUnratedDistanceField').className = mode === 'unrated' ? 'ss-field' : 'hidden';
+
+  const hostConferenceField = $('enduranceHostConferenceField');
+  if (hostConferenceField) hostConferenceField.className = 'hidden';
 
   const raceSelect = $('enduranceRaceKey');
   if (raceSelect && mode === 'rated') {
@@ -2701,17 +2934,26 @@ function renderEnduranceControls() {
 function updateEnduranceRaceMeta() {
   const race = SS_ENDURANCE_RACES.find(row => row.key === $('enduranceRaceKey')?.value);
   const meta = $('enduranceRaceMeta');
+  const hostField = $('enduranceHostConferenceField');
   if (!meta) return;
 
   if (!race) {
+    if (hostField) hostField.className = 'hidden';
     meta.textContent = 'Select a rated race.';
     return;
   }
 
+  const hostDependent = cleanLine(race.conference).toLowerCase() === 'host dependent';
+  if (hostField) hostField.className = hostDependent ? 'ss-field' : 'hidden';
+
+  const selectedConference = hostDependent
+    ? ($('enduranceHostConference')?.value || 'Western')
+    : race.conference;
+
   const bits = [];
   if (race.grade) bits.push('Grade ' + race.grade);
   if (race.distance_km) bits.push(race.distance_km + ' km');
-  if (race.conference) bits.push(race.conference);
+  if (selectedConference) bits.push(selectedConference);
   if (race.series) bits.push(race.series.replace(/_/g,' '));
   const grade = String(race.grade || '').toUpperCase().trim();
   if (grade === 'II') bits.push('Requires EnN+');
@@ -4323,6 +4565,12 @@ function passedPlacement(r){
   return m ? Number(m[0]) : null;
 }
 
+function enduranceRaceConference(race){
+  const base = cleanLine(race && race.conference);
+  if (base.toLowerCase() !== 'host dependent') return base || null;
+  return $('enduranceHostConference')?.value || null;
+}
+
 async function checkEnduranceRaceEligibility(rawData,race){
   const supabase=getSupabase();
   if(!supabase) throw new Error('Supabase is not ready.');
@@ -4452,12 +4700,13 @@ async function runEnduranceRated(rawData,showData){
   }
 
   const lines=[],records=[];
+  const selectedConference = enduranceRaceConference(race);
   addLine(lines,bold(race.name));
   addLine(lines,
     [
       race.grade ? 'Grade '+race.grade : null,
       race.distance_km ? race.distance_km+' km' : null,
-      race.conference || null,
+      selectedConference || null,
       race.circuit || null
     ].filter(Boolean).join(' • ')
   );
@@ -4481,7 +4730,7 @@ async function runEnduranceRated(rawData,showData){
       endurance_race_key:race.key,
       endurance_race_name:race.name,
       endurance_grade:race.grade||null,
-      endurance_conference:race.conference||null,
+      endurance_conference:selectedConference||null,
       endurance_circuit:race.circuit||null,
       endurance_series:race.series||null,
       endurance_distance_km:Number(race.distance_km||0),
@@ -4944,77 +5193,64 @@ function runIcelandicClub(rawData, showData) {
 }
 
 const SS_CGC_LEVELS = Object.freeze([
-  {key:'cgc', code:'CGC', label:'Canine Good Citizen'},
-  {key:'cgcb',code:'CGCB',label:'Canine Good Citizen Bronze'},
-  {key:'cgcs',code:'CGCS',label:'Canine Good Citizen Silver'},
-  {key:'cgcg',code:'CGCG',label:'Canine Good Citizen Gold'},
-  {key:'cgca',code:'CGCA',label:'Canine Good Citizen Advanced'},
-  {key:'cgcu',code:'CGCU',label:'Canine Good Citizen Urban'}
+  Object.freeze({key:'cgc',  code:'CGC',  label:'Canine Good Citizen'}),
+  Object.freeze({key:'cgcb', code:'CGCB', label:'Canine Good Citizen Bronze'}),
+  Object.freeze({key:'cgcs', code:'CGCS', label:'Canine Good Citizen Silver'}),
+  Object.freeze({key:'cgcg', code:'CGCG', label:'Canine Good Citizen Gold'}),
+  Object.freeze({key:'cgca', code:'CGCA', label:'Canine Good Citizen Advanced'}),
+  Object.freeze({key:'cgcu', code:'CGCU', label:'Canine Good Citizen Urban'})
 ]);
 
-const SS_CGC_INDEX_BY_CODE = Object.freeze(
-  SS_CGC_LEVELS.reduce((out, level, index) => {
-    out[level.code.toLowerCase()] = index;
-    return out;
-  }, {})
-);
-
-function highestDisplayedCgcIndex(rawEntry) {
-  // Entry Builder lines contain current earned titles. Match complete title tokens only,
-  // and use the HIGHEST one found. The alternation is deliberately longest-first.
-  const text = cleanLine(stripEntryOwner(rawEntry));
-  const re = /(?:^|\s)(CGCU|CGCA|CGCG|CGCS|CGCB|CGC)\.?(?=\s|$)/ig;
-  let highest = -1;
+function cgcDisplayedLevel(rawEntry) {
+  // The entry builder supplies the animal's CURRENT displayed titles. If one of
+  // those titles is present, it is the authoritative progression point for this
+  // run. Match complete title tokens only: CGC must never match inside CGCB/CGCS.
+  const animalPart = stripEntryOwner(rawEntry);
+  const tokenRe = /(?:^|\s)(CGCU|CGCA|CGCG|CGCS|CGCB|CGC)\.?(?=\s|$)/gi;
   let match;
-  while ((match = re.exec(text)) !== null) {
-    const index = SS_CGC_INDEX_BY_CODE[String(match[1] || '').toLowerCase()];
-    if (Number.isInteger(index)) highest = Math.max(highest, index);
+  let highest = -1;
+  while ((match = tokenRe.exec(animalPart)) !== null) {
+    const code = String(match[1] || '').toUpperCase();
+    const index = SS_CGC_LEVELS.findIndex(level => level.code === code);
+    if (index > highest) highest = index;
   }
-  return highest;
+  return highest >= 0 ? SS_CGC_LEVELS[highest] : null;
 }
 
-function highestHistoricalCgcIndex(records) {
+function cgcHistoricalHighest(records) {
+  // Historical passes are a fallback for undecorated entry lists. A higher pass
+  // proves the lower prerequisites; progression therefore uses the HIGHEST
+  // recognized passed level rather than searching for the first missing row.
   let highest = -1;
-
   (records || []).forEach(record => {
-    if (record?.passed !== true) return;
-
+    if (record.passed !== true) return;
     const key = cleanLine(record.activity_key).toLowerCase();
-    const cls = cleanLine(record.class).toLowerCase();
-    const lbl = cleanLine(record.score_label).toLowerCase();
+    const cls = cleanLine(record.class || record.class_name).toLowerCase();
+    const label = cleanLine(record.score_label).toLowerCase();
 
     SS_CGC_LEVELS.forEach((level, index) => {
       if (
         key === level.key ||
         cls === level.label.toLowerCase() ||
-        lbl === level.code.toLowerCase()
+        cls === (level.label + ' (' + level.code + ')').toLowerCase() ||
+        label === level.code.toLowerCase()
       ) {
-        highest = Math.max(highest, index);
+        if (index > highest) highest = index;
       }
     });
   });
-
-  return highest;
+  return highest >= 0 ? SS_CGC_LEVELS[highest] : null;
 }
 
-function nextCgcLevel(rawEntry, records) {
-  /*
-    The CGC ladder is strictly linear:
-      CGC -> CGCB -> CGCS -> CGCG -> CGCA -> CGCU
-
-    A displayed/current CGC title is authoritative because the entry builder reflects
-    the dog's current registered title. Historical records are used only when no CGC
-    title is present on the submitted entry. We NEVER search for an arbitrary missing
-    tier; we move exactly one step above the highest earned tier.
-  */
-  const displayedIndex = highestDisplayedCgcIndex(rawEntry);
-  const earnedIndex = displayedIndex >= 0
-    ? displayedIndex
-    : highestHistoricalCgcIndex(records);
-
-  const nextIndex = earnedIndex + 1;
-  return nextIndex >= 0 && nextIndex < SS_CGC_LEVELS.length
-    ? SS_CGC_LEVELS[nextIndex]
+function cgcNextLevel(displayedLevel, records) {
+  // A displayed title wins over old testing rows because it is the title the
+  // site's current title engine says the dog actually carries. This prevents a
+  // stale/mislabelled historical row from pushing a CGC dog ahead or backwards.
+  const current = displayedLevel || cgcHistoricalHighest(records);
+  if (!current) return SS_CGC_LEVELS[0];
+  const currentIndex = SS_CGC_LEVELS.findIndex(level => level.key === current.key);
+  return currentIndex >= 0 && currentIndex + 1 < SS_CGC_LEVELS.length
+    ? SS_CGC_LEVELS[currentIndex + 1]
     : null;
 }
 
@@ -5026,103 +5262,96 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
   const entries = herdingEntryLines(rawData);
   if (!entries.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
 
+  const accepted = [];
   const declined = [];
   const matched = [];
 
-  /*
-    PERFORMANCE FIX:
-    Resolve every registry animal first, then fetch prior testing/show records in
-    batches. The old version queried show_records once PER DOG, sequentially,
-    which made large CGC entry lists appear to hang.
-  */
-  for (const rawEntry of entries) {
+  // Resolve the registry once for every entry before touching show_records.
+  entries.forEach(rawEntry => {
     const match = findAnimal(rawEntry, animalMap);
     if (match.status === 'not-found') {
       declined.push({entry:rawEntry,reason:'Exact registry animal not found'});
-      continue;
+      return;
     }
     if (match.status === 'ambiguous') {
       declined.push({entry:rawEntry,reason:'Duplicate exact registry name'});
-      continue;
+      return;
     }
 
     const animal = match.animal;
     const species = cleanLine(animal.species).toLowerCase();
     if (species !== cleanLine(showData.species).toLowerCase()) {
       declined.push({entry:rawEntry,reason:'Registry species does not match selected species'});
-      continue;
+      return;
     }
     if (eventType === 'cgc' && species !== 'dog') {
       declined.push({entry:rawEntry,reason:'CGC is dogs only'});
-      continue;
+      return;
     }
 
-    matched.push({rawEntry, animal});
-  }
+    matched.push({
+      rawEntry,
+      animal,
+      displayedCgcLevel: eventType === 'cgc' ? cgcDisplayedLevel(rawEntry) : null
+    });
+  });
 
-  if (!matched.length) return {accepted:[], declined};
+  if (!matched.length) return {accepted,declined};
 
-  const recordsByAnimal = new Map();
-  matched.forEach(item => recordsByAnimal.set(item.animal.id, []));
+  // One query per 200 animals instead of one query PER ANIMAL. Large testing
+  // cards can contain hundreds of dogs, so the old sequential loop appeared to
+  // freeze while waiting for hundreds of network round trips.
+  const priorByAnimal = new Map();
+  matched.forEach(item => priorByAnimal.set(String(item.animal.id), []));
+  const ids = [...priorByAnimal.keys()];
+  const batchSize = 200;
 
-  // De-duplicate IDs before querying; chunking keeps Supabase/PostgREST URLs sane
-  // even for very large entry lists.
-  const animalIds = [...new Set(matched.map(item => item.animal.id).filter(Boolean))];
-  const chunkSize = 200;
-
-  for (let i = 0; i < animalIds.length; i += chunkSize) {
-    const ids = animalIds.slice(i, i + chunkSize);
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
     const {data:prior,error} = await supabase.from('show_records')
       .select('id,animal_id,class,activity_key,passed,score,score_label,event_date')
-      .in('animal_id', ids);
-
+      .in('animal_id', batch);
     if (error) throw new Error('Testing eligibility load failed: ' + error.message);
 
     (prior || []).forEach(record => {
-      if (!recordsByAnimal.has(record.animal_id)) recordsByAnimal.set(record.animal_id, []);
-      recordsByAnimal.get(record.animal_id).push(record);
+      const id = String(record.animal_id || '');
+      if (!priorByAnimal.has(id)) priorByAnimal.set(id, []);
+      priorByAnimal.get(id).push(record);
     });
   }
 
-  const accepted = [];
-
-  for (const item of matched) {
-    const rawEntry = item.rawEntry;
-    const animal = item.animal;
-    const records = recordsByAnimal.get(animal.id) || [];
+  matched.forEach(item => {
+    const records = priorByAnimal.get(String(item.animal.id)) || [];
 
     if (eventType === 'temperament') {
-      const attempted = records.some(r =>
-        cleanLine(r.activity_key).toLowerCase() === 'temperament_test' ||
-        cleanLine(r.class).toLowerCase().includes('temperament test')
+      const attempted = records.some(record =>
+        cleanLine(record.activity_key).toLowerCase() === 'temperament_test' ||
+        cleanLine(record.class).toLowerCase().includes('temperament test')
       );
       if (attempted) {
-        declined.push({entry:rawEntry,reason:'Temperament Test may only be attempted once'});
-        continue;
+        declined.push({entry:item.rawEntry,reason:'Temperament Test may only be attempted once'});
+        return;
       }
     }
 
     let cgcLevel = null;
     if (eventType === 'cgc') {
-      cgcLevel = nextCgcLevel(rawEntry, records);
+      cgcLevel = cgcNextLevel(item.displayedCgcLevel, records);
       if (!cgcLevel) {
-        declined.push({entry:rawEntry,reason:'All CGC levels already earned'});
-        continue;
+        declined.push({entry:item.rawEntry,reason:'All CGC levels already earned'});
+        return;
       }
     }
 
-    accepted.push({rawEntry, animal, cgcLevel});
-  }
+    accepted.push({rawEntry:item.rawEntry,animal:item.animal,cgcLevel});
+  });
 
-  return {accepted, declined};
+  return {accepted,declined};
 }
 
 async function runTestingSystem(rawData,showData){
   const eventType=showData.specialtyEventType||showData.herdingEventType||'temperament';
 
-  // Testing systems only understand these three events. Guard against stale
-  // specialty UI state so an association event such as IHASS 'breeding' can
-  // never fall through to the CGC branch and dereference a null level object.
   if (!['temperament','therapy','cgc'].includes(eventType)) {
     throw new Error('Invalid testing event "' + eventType + '". Re-select the specialty system and event.');
   }
@@ -5136,17 +5365,19 @@ async function runTestingSystem(rawData,showData){
   const species=cleanLine(showData.species).toLowerCase();
   const speciesSuffix=species==='dog'?'D':species==='cat'?'C':'H';
 
-  if(eventType==='cgc'){
+  if (eventType === 'cgc') {
     addLine(lines,bold('Canine Good Citizen Testing'));
     addLine(lines,'');
 
-    // Each progression tier is its own class for clean, readable results.
-    SS_CGC_LEVELS.forEach(level=>{
-      const classEntries=accepted.filter(item=>item.cgcLevel?.key===level.key);
-      if(!classEntries.length) return;
+    // Every progression level is a genuine class in the rendered card. This is
+    // both easier to read and makes it visually obvious if a dog was routed to
+    // the wrong level before anything is uploaded.
+    SS_CGC_LEVELS.forEach(level => {
+      const classEntries = accepted.filter(item => item.cgcLevel && item.cgcLevel.key === level.key);
+      if (!classEntries.length) return;
 
-      addLine(lines,bold(level.label+' ('+level.code+')'));
-      classEntries.forEach(item=>{
+      addLine(lines,bold(level.label + ' (' + level.code + ')'));
+      classEntries.forEach(item => {
         const passed=Math.random()<0.5;
         addLine(lines,item.rawEntry+' - '+(passed?'Pass':'Fail'));
         activityRecord(records,showData,level.label,level.label,{name:item.rawEntry,passed},1,passed?'Pass':'Fail');
@@ -5161,7 +5392,7 @@ async function runTestingSystem(rawData,showData){
       });
       addLine(lines,'');
     });
-  }else{
+  } else {
     const heading=eventType==='temperament'?'Temperament Test':'Therapy Animal Test';
     addLine(lines,bold(heading));
     addLine(lines,'');
@@ -5185,7 +5416,8 @@ async function runTestingSystem(rawData,showData){
   }
 
   if(declined.length){
-    addLine(lines,''); addLine(lines,bold('Declined Entries'));
+    addLine(lines,'');
+    addLine(lines,bold('Declined Entries'));
     declined.forEach(x=>addLine(lines,x.entry+' - DECLINED: '+x.reason));
   }
   return {lines,records};
@@ -5494,3 +5726,5 @@ window.SSRandomizer = {
   }
 };
 })();
+
+</script>
