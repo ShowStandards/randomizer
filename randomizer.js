@@ -5202,19 +5202,31 @@ const SS_CGC_LEVELS = Object.freeze([
 ]);
 
 function cgcDisplayedLevel(rawEntry) {
-  // The entry builder supplies the animal's CURRENT displayed titles. If one of
-  // those titles is present, it is the authoritative progression point for this
-  // run. Match complete title tokens only: CGC must never match inside CGCB/CGCS.
+  // The CURRENT title shown on the submitted entry is authoritative for this run.
+  // Tokenize the animal-name portion instead of using substring matching so CGC
+  // can never be mistaken for CGCB / CGCS / CGCG / CGCA / CGCU.
   const animalPart = stripEntryOwner(rawEntry);
-  const tokenRe = /(?:^|\s)(CGCU|CGCA|CGCG|CGCS|CGCB|CGC)\.?(?=\s|$)/gi;
-  let match;
+  const tokens = String(animalPart || '')
+    .split(/\s+/)
+    .map(token => token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '').toUpperCase())
+    .filter(Boolean);
+
   let highest = -1;
-  while ((match = tokenRe.exec(animalPart)) !== null) {
-    const code = String(match[1] || '').toUpperCase();
+  tokens.forEach(code => {
     const index = SS_CGC_LEVELS.findIndex(level => level.code === code);
     if (index > highest) highest = index;
-  }
+  });
+
   return highest >= 0 ? SS_CGC_LEVELS[highest] : null;
+}
+
+function isCgcLegendLine(rawEntry) {
+  // Ignore reference/legend lines such as:
+  // CGC - Canine Good Citizen
+  // CGCB - Canine Good Citizen Bronze
+  // These describe the progression and are not registry animals.
+  const line = cleanLine(rawEntry);
+  return /^(CGC|CGCB|CGCS|CGCG|CGCA|CGCU)\s+-\s+Canine Good Citizen(?:\s+(?:Bronze|Silver|Gold|Advanced|Urban))?$/i.test(line);
 }
 
 function cgcHistoricalHighest(records) {
@@ -5259,7 +5271,10 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
   if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
 
   const animalMap = await loadAnimalsMap(supabase);
-  const entries = herdingEntryLines(rawData);
+  const entries = herdingEntryLines(rawData).filter(rawEntry => {
+    if (eventType === 'cgc' && isCgcLegendLine(rawEntry)) return false;
+    return true;
+  });
   if (!entries.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
 
   const accepted = [];
