@@ -2,7 +2,7 @@
   <div class="ss-randomizer-head">
     <div class="ss-kicker">Show Standard</div>
     <h1>Show Randomizer</h1>
-    <div class="version-note">CGC FIX LIVE • 2026-09-03 • BUILD A</div>
+    <div class="version-note">CGC CLASS HEADERS LIVE • 2026-09-03 • BUILD B</div>
   </div>
 
   <div class="ss-engine-tabs" role="tablist" aria-label="Randomizer types">
@@ -5202,6 +5202,52 @@ const SS_CGC_LEVELS = Object.freeze([
   Object.freeze({key:'cgcu', code:'CGCU', label:'Canine Good Citizen Urban'})
 ]);
 
+function cgcLevelFromHeader(line) {
+  const code = cleanLine(line).toUpperCase();
+  return SS_CGC_LEVELS.find(level => level.code === code) || null;
+}
+
+function parseCgcClassEntries(rawData) {
+  // Entry Builder output is already classed:
+  //
+  // CGC
+  // Dog - Owner
+  // Dog - Owner
+  //
+  // CGCB
+  // Dog - Owner
+  //
+  // Those headings are authoritative. Do NOT throw them away and then try to
+  // reconstruct the class from titles/history.
+  const lines = String(rawData || '')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map(cleanLine)
+    .filter(Boolean);
+
+  const parsed = [];
+  let currentLevel = null;
+  let sawClassHeader = false;
+
+  lines.forEach(line => {
+    const headerLevel = cgcLevelFromHeader(line);
+    if (headerLevel) {
+      currentLevel = headerLevel;
+      sawClassHeader = true;
+      return;
+    }
+
+    if (isCgcLegendLine(line)) return;
+
+    parsed.push({
+      rawEntry: line,
+      requestedCgcLevel: currentLevel
+    });
+  });
+
+  return { entries: parsed, hasClassHeaders: sawClassHeader };
+}
+
 function cgcDisplayedLevel(rawEntry) {
   // The CURRENT title shown on the submitted entry is authoritative for this run.
   // Tokenize the animal-name portion instead of using substring matching so CGC
@@ -5272,18 +5318,30 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
   if (!supabase) throw new Error('Supabase is not ready. Refresh and try again.');
 
   const animalMap = await loadAnimalsMap(supabase);
-  const entries = herdingEntryLines(rawData).filter(rawEntry => {
-    if (eventType === 'cgc' && isCgcLegendLine(rawEntry)) return false;
-    return true;
-  });
-  if (!entries.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
+
+  let entryItems = [];
+  let cgcInputHasClassHeaders = false;
+
+  if (eventType === 'cgc') {
+    const parsedCgc = parseCgcClassEntries(rawData);
+    entryItems = parsedCgc.entries;
+    cgcInputHasClassHeaders = parsedCgc.hasClassHeaders;
+  } else {
+    entryItems = herdingEntryLines(rawData).map(rawEntry => ({
+      rawEntry,
+      requestedCgcLevel: null
+    }));
+  }
+
+  if (!entryItems.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
 
   const accepted = [];
   const declined = [];
   const matched = [];
 
   // Resolve the registry once for every entry before touching show_records.
-  entries.forEach(rawEntry => {
+  entryItems.forEach(item => {
+    const rawEntry = item.rawEntry;
     const match = findAnimal(rawEntry, animalMap);
     if (match.status === 'not-found') {
       declined.push({entry:rawEntry,reason:'Exact registry animal not found'});
@@ -5308,18 +5366,22 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
     matched.push({
       rawEntry,
       animal,
+      requestedCgcLevel: item.requestedCgcLevel || null,
       displayedCgcLevel: eventType === 'cgc' ? cgcDisplayedLevel(rawEntry) : null
     });
   });
 
   if (!matched.length) return {accepted,declined};
 
-  // One query per 200 animals instead of one query PER ANIMAL. Large testing
-  // cards can contain hundreds of dogs, so the old sequential loop appeared to
-  // freeze while waiting for hundreds of network round trips.
+  // One query per 200 animals instead of one query PER ANIMAL.
   const priorByAnimal = new Map();
-  matched.forEach(item => priorByAnimal.set(String(item.animal.id), []));
-  const ids = [...priorByAnimal.keys()];
+  const idValueByKey = new Map();
+  matched.forEach(item => {
+    const key = String(item.animal.id);
+    priorByAnimal.set(key, []);
+    idValueByKey.set(key, item.animal.id);
+  });
+  const ids = [...idValueByKey.values()];
   const batchSize = 200;
 
   for (let i = 0; i < ids.length; i += batchSize) {
@@ -5352,10 +5414,16 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
 
     let cgcLevel = null;
     if (eventType === 'cgc') {
-      cgcLevel = cgcNextLevel(item.displayedCgcLevel, records);
-      if (!cgcLevel) {
-        declined.push({entry:item.rawEntry,reason:'All CGC levels already earned'});
-        return;
+      if (cgcInputHasClassHeaders && item.requestedCgcLevel) {
+        // Entry Builder class headings are the source of truth for this show.
+        cgcLevel = item.requestedCgcLevel;
+      } else {
+        // Backward compatibility for old unclassed lists.
+        cgcLevel = cgcNextLevel(item.displayedCgcLevel, records);
+        if (!cgcLevel) {
+          declined.push({entry:item.rawEntry,reason:'All CGC levels already earned'});
+          return;
+        }
       }
     }
 
