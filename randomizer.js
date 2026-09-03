@@ -5026,47 +5026,95 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
   const entries = herdingEntryLines(rawData);
   if (!entries.length) throw new Error('No valid testing entries found. Use: Animal Name - Owner');
 
-  const accepted = [], declined = [];
+  const declined = [];
+  const matched = [];
 
+  /*
+    PERFORMANCE FIX:
+    Resolve every registry animal first, then fetch prior testing/show records in
+    batches. The old version queried show_records once PER DOG, sequentially,
+    which made large CGC entry lists appear to hang.
+  */
   for (const rawEntry of entries) {
     const match = findAnimal(rawEntry, animalMap);
-    if (match.status === 'not-found') { declined.push({entry:rawEntry,reason:'Exact registry animal not found'}); continue; }
-    if (match.status === 'ambiguous') { declined.push({entry:rawEntry,reason:'Duplicate exact registry name'}); continue; }
+    if (match.status === 'not-found') {
+      declined.push({entry:rawEntry,reason:'Exact registry animal not found'});
+      continue;
+    }
+    if (match.status === 'ambiguous') {
+      declined.push({entry:rawEntry,reason:'Duplicate exact registry name'});
+      continue;
+    }
 
-    const animal=match.animal;
-    const species=cleanLine(animal.species).toLowerCase();
+    const animal = match.animal;
+    const species = cleanLine(animal.species).toLowerCase();
     if (species !== cleanLine(showData.species).toLowerCase()) {
-      declined.push({entry:rawEntry,reason:'Registry species does not match selected species'}); continue;
+      declined.push({entry:rawEntry,reason:'Registry species does not match selected species'});
+      continue;
     }
-    if (eventType==='cgc' && species!=='dog') {
-      declined.push({entry:rawEntry,reason:'CGC is dogs only'}); continue;
+    if (eventType === 'cgc' && species !== 'dog') {
+      declined.push({entry:rawEntry,reason:'CGC is dogs only'});
+      continue;
     }
 
-    const {data:prior,error}=await supabase.from('show_records')
+    matched.push({rawEntry, animal});
+  }
+
+  if (!matched.length) return {accepted:[], declined};
+
+  const recordsByAnimal = new Map();
+  matched.forEach(item => recordsByAnimal.set(item.animal.id, []));
+
+  // De-duplicate IDs before querying; chunking keeps Supabase/PostgREST URLs sane
+  // even for very large entry lists.
+  const animalIds = [...new Set(matched.map(item => item.animal.id).filter(Boolean))];
+  const chunkSize = 200;
+
+  for (let i = 0; i < animalIds.length; i += chunkSize) {
+    const ids = animalIds.slice(i, i + chunkSize);
+    const {data:prior,error} = await supabase.from('show_records')
       .select('id,animal_id,class,activity_key,passed,score,score_label,event_date')
-      .eq('animal_id',animal.id).order('event_date',{ascending:true});
-    if(error) throw new Error('Eligibility check failed for '+animal.name+': '+error.message);
-    const records=prior||[];
+      .in('animal_id', ids);
 
-    if(eventType==='temperament'){
-      const attempted=records.some(r =>
-        cleanLine(r.activity_key).toLowerCase()==='temperament_test' ||
+    if (error) throw new Error('Testing eligibility load failed: ' + error.message);
+
+    (prior || []).forEach(record => {
+      if (!recordsByAnimal.has(record.animal_id)) recordsByAnimal.set(record.animal_id, []);
+      recordsByAnimal.get(record.animal_id).push(record);
+    });
+  }
+
+  const accepted = [];
+
+  for (const item of matched) {
+    const rawEntry = item.rawEntry;
+    const animal = item.animal;
+    const records = recordsByAnimal.get(animal.id) || [];
+
+    if (eventType === 'temperament') {
+      const attempted = records.some(r =>
+        cleanLine(r.activity_key).toLowerCase() === 'temperament_test' ||
         cleanLine(r.class).toLowerCase().includes('temperament test')
       );
-      if(attempted){declined.push({entry:rawEntry,reason:'Temperament Test may only be attempted once'});continue;}
+      if (attempted) {
+        declined.push({entry:rawEntry,reason:'Temperament Test may only be attempted once'});
+        continue;
+      }
     }
 
-    let cgcLevel=null;
-    if(eventType==='cgc'){
+    let cgcLevel = null;
+    if (eventType === 'cgc') {
       cgcLevel = nextCgcLevel(rawEntry, records);
-      if(!cgcLevel){
+      if (!cgcLevel) {
         declined.push({entry:rawEntry,reason:'All CGC levels already earned'});
         continue;
       }
     }
-    accepted.push({rawEntry,animal,cgcLevel});
+
+    accepted.push({rawEntry, animal, cgcLevel});
   }
-  return {accepted,declined};
+
+  return {accepted, declined};
 }
 
 async function runTestingSystem(rawData,showData){
