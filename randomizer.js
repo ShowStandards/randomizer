@@ -2640,9 +2640,9 @@ function ensureEnduranceControls() {
     </div>
 
     <div class="ss-field" id="enduranceUnratedDistanceField">
-      <label>Unrated Race Distance (km)</label>
-      <input type="number" id="enduranceUnratedDistance" min="0" step="1" value="100">
-      <small>Used for cumulative Endurance Club distance titles.</small>
+      <label>Fallback Distance (km) — Optional</label>
+      <input type="number" id="enduranceUnratedDistance" min="0" step="1" value="" placeholder="Auto-detected from each class heading">
+      <small>Unrated race distance is read automatically from each class name (for example: 25km, 100km, or 200 km). Only enter a fallback here if a race heading does not contain a distance.</small>
     </div>
 
     <div class="ss-field">
@@ -4276,10 +4276,25 @@ function runEnduranceUnrated(rawData,showData){
     if(ci) addLine(lines,'');
     addLine(lines,bold(cls.name));
 
-    const classDistanceMatch=cls.name.match(/(\d[\d,]*)\s*km/i);
-    const distance=classDistanceMatch
+    // ENDURANCE CLUB ONLY:
+    // Read each unrated race distance from its own class heading so a mixed
+    // paste such as 25km / 30km / 50km / 100km / 200 km can run at once.
+    // The manual field remains only as an optional fallback for named races
+    // whose heading does not contain a km value.
+    const classDistanceMatch=cls.name.match(/\b(\d[\d,]*(?:\.\d+)?)\s*km\b/i);
+    const parsedDistance=classDistanceMatch
       ? Number(classDistanceMatch[1].replace(/,/g,''))
-      : fallbackDistance;
+      : 0;
+    const distance=parsedDistance>0 ? parsedDistance : fallbackDistance;
+
+    if(!(distance>0)){
+      throw new Error(
+        'Could not determine the distance for unrated Endurance race "' +
+        cls.name +
+        '". Put the distance in the class heading (example: 100km Open Endurance Run) ' +
+        'or enter one optional fallback distance.'
+      );
+    }
 
     shuffle(cls.entries.slice()).forEach((horse,index)=>{
       const place=index+1;
