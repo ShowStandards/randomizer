@@ -4191,38 +4191,12 @@ function parseEnduranceSimpleClasses(rawData) {
         classes.push(current);
       }
 
-      /*
-        ENDURANCE-ONLY MULTI-HORSE ENTRY SUPPORT
-
-        Normal entry:
-          Horse Name - Owner
-
-        Supported chained entry:
-          Horse One - Horse Two - Horse Three - Owner
-
-        The LAST segment is treated as the owner and every preceding segment is
-        treated as an individual horse. Each horse is rebuilt as:
-          Horse Name - Owner
-
-        This logic lives ONLY inside the Endurance simple-class parser and does
-        not touch the generic activity / relay / team / brace parsers.
-      */
-      const parts = line
-        .split(/\s+-\s+/)
-        .map(cleanLine)
-        .filter(Boolean);
-
-      if (parts.length > 2) {
-        const owner = parts[parts.length - 1];
-        const horses = parts.slice(0, -1);
-
-        horses.forEach(horse => {
-          current.entries.push(horse + ' - ' + owner);
-        });
-      } else {
-        current.entries.push(line);
-      }
-
+      // IMPORTANT:
+      // Keep the whole physical line as ONE race entry here.
+      // For Endurance relay/team entries, a line such as:
+      //   Horse 1 - Horse 2 - Horse 3 - Owner
+      // represents ONE team and must receive ONE placement.
+      current.entries.push(line);
       return;
     }
 
@@ -4231,6 +4205,38 @@ function parseEnduranceSimpleClasses(rawData) {
   });
 
   return classes.filter(cls => cls.entries.length);
+}
+
+/*
+  ENDURANCE UNRATED RELAY/TEAM SUPPORT
+  ------------------------------------
+  A normal individual entry is:
+    Horse - Owner
+
+  A relay/team entry is:
+    Horse 1 - Horse 2 - Horse 3 - Owner
+
+  The team is judged as ONE entry, then expanded into individual horse records
+  AFTER the placement has been assigned. This preserves the same placement,
+  points, distance, and winnings for every horse on the team.
+
+  This helper is Endurance-only. It does not touch the generic activity,
+  conformation, Herding, Hunting, Spaniel, IHASS, or Championship parsers.
+*/
+function enduranceUnratedEntryMembers(rawEntry) {
+  const raw = cleanLine(rawEntry);
+  if (!raw) return [];
+
+  const parts = raw
+    .split(/\s+[\-‐‑‒–—―]\s+/)
+    .map(cleanLine)
+    .filter(Boolean);
+
+  // Individual entry: Horse - Owner
+  if (parts.length <= 2) return [raw];
+
+  const owner = parts[parts.length - 1];
+  return parts.slice(0, -1).map(horse => horse + ' - ' + owner);
 }
 
 function enduranceRecordBase(showData, horseName, className, place, points) {
@@ -4328,29 +4334,42 @@ function runEnduranceUnrated(rawData,showData){
       );
     }
 
-    shuffle(cls.entries.slice()).forEach((horse,index)=>{
+    // Each PHYSICAL LINE is one race entry. A relay/team line stays together
+    // for judging so all horses on that line receive the same placement.
+    shuffle(cls.entries.slice()).forEach((entry,index)=>{
       const place=index+1;
       const points=SS_CONFIG.placementPoints[place]||0;
       const winnings=endurancePrizeForPlace(place);
+      const members=enduranceUnratedEntryMembers(entry);
 
       addLine(lines,
-        placementLabel(place)+' '+horse+
+        placementLabel(place)+' '+entry+
         (winnings ? ' - $'+winnings.toLocaleString() : '')
       );
 
-      const record=enduranceRecordBase(showData,horse,'Endurance - '+cls.name,place,points);
-      Object.assign(record,{
-        association_event_type:'unrated',
-        endurance_race_key:'unrated_'+cleanLine(cls.name).toLowerCase().replace(/[^a-z0-9]+/g,'_'),
-        endurance_race_name:cls.name,
-        endurance_grade:null,
-        endurance_conference:null,
-        endurance_circuit:null,
-        endurance_series:null,
-        endurance_distance_km:distance,
-        endurance_winnings:winnings
+      members.forEach(horse=>{
+        const record=enduranceRecordBase(
+          showData,
+          horse,
+          'Endurance - '+cls.name,
+          place,
+          points
+        );
+
+        Object.assign(record,{
+          association_event_type:'unrated',
+          endurance_race_key:'unrated_'+cleanLine(cls.name).toLowerCase().replace(/[^a-z0-9]+/g,'_'),
+          endurance_race_name:cls.name,
+          endurance_grade:null,
+          endurance_conference:null,
+          endurance_circuit:null,
+          endurance_series:null,
+          endurance_distance_km:distance,
+          endurance_winnings:winnings
+        });
+
+        records.push(record);
       });
-      records.push(record);
     });
   });
 
