@@ -4190,7 +4190,39 @@ function parseEnduranceSimpleClasses(rawData) {
         current = { name:'Endurance', entries:[] };
         classes.push(current);
       }
-      current.entries.push(line);
+
+      /*
+        ENDURANCE-ONLY MULTI-HORSE ENTRY SUPPORT
+
+        Normal entry:
+          Horse Name - Owner
+
+        Supported chained entry:
+          Horse One - Horse Two - Horse Three - Owner
+
+        The LAST segment is treated as the owner and every preceding segment is
+        treated as an individual horse. Each horse is rebuilt as:
+          Horse Name - Owner
+
+        This logic lives ONLY inside the Endurance simple-class parser and does
+        not touch the generic activity / relay / team / brace parsers.
+      */
+      const parts = line
+        .split(/\s+-\s+/)
+        .map(cleanLine)
+        .filter(Boolean);
+
+      if (parts.length > 2) {
+        const owner = parts[parts.length - 1];
+        const horses = parts.slice(0, -1);
+
+        horses.forEach(horse => {
+          current.entries.push(horse + ' - ' + owner);
+        });
+      } else {
+        current.entries.push(line);
+      }
+
       return;
     }
 
