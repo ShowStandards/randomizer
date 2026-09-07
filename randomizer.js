@@ -4179,7 +4179,7 @@ function parseEnduranceSimpleClasses(rawData) {
     .split('\n')
     .map(cleanLine);
 
-  const classes = [];
+  const parsedClasses = [];
   let current = null;
 
   lines.forEach(line => {
@@ -4188,7 +4188,7 @@ function parseEnduranceSimpleClasses(rawData) {
     if (line.includes(' - ')) {
       if (!current) {
         current = { name:'Endurance', entries:[] };
-        classes.push(current);
+        parsedClasses.push(current);
       }
 
       // IMPORTANT:
@@ -4201,11 +4201,55 @@ function parseEnduranceSimpleClasses(rawData) {
     }
 
     current = { name: line, entries: [] };
-    classes.push(current);
+    parsedClasses.push(current);
   });
 
-  return classes.filter(cls => cls.entries.length);
+  /*
+    ENDURANCE DUPLICATE-RACE COMBINE FIX
+    ------------------------------------
+    If the same race heading appears more than once in one paste, all entries
+    belong to ONE physical race and must be judged together.
+
+    Example:
+      50km Open Endurance Run
+        Tia entries...
+
+      50km Open Endurance Run
+        Vienna entries...
+
+    becomes ONE 50km Open Endurance Run before shuffle/judging.
+
+    Different race headings remain separate.
+  */
+  const combined = [];
+  const byRaceName = new Map();
+
+  parsedClasses
+    .filter(cls => cls.entries.length)
+    .forEach(cls => {
+      const raceKey = cleanLine(cls.name)
+        .toLowerCase()
+        .replace(/\b(\d[\d,]*(?:\.\d+)?)\s*km\b/g, '$1km')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!byRaceName.has(raceKey)) {
+        const mergedClass = {
+          name: cls.name,
+          entries: cls.entries.slice()
+        };
+
+        byRaceName.set(raceKey, mergedClass);
+        combined.push(mergedClass);
+        return;
+      }
+
+      byRaceName.get(raceKey).entries.push(...cls.entries);
+    });
+
+  return combined;
 }
+
 
 /*
   ENDURANCE UNRATED RELAY/TEAM SUPPORT
