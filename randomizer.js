@@ -17,6 +17,15 @@ const SS_CONFIG = {
     'BAROQUE','DRAFT HORSES','FERAL','GAITED','LIGHT HORSES','MINIATURES','PONIES','STOCK HORSES','WARMBLOODS'
   ],
   titleCodes: ['SPRWCH','NATCH','INTCH','UNICH','GCH','WCH','HOF','HOL','CH'],
+  crossBreedConformationPoints: {
+    'Best in Show': 50,
+    'Reserve Best in Show': 40,
+    'Best of Breed': 20,
+    'Male Challenge': 10,
+    'Female Challenge': 10,
+    'Reserve Male Challenge': 8,
+    'Reserve Female Challenge': 8
+  },
   conformationPoints: {
     'Best in Show': 100,
     'Reserve Best in Show': 90,
@@ -144,6 +153,7 @@ function getShowTypeKind(showType, showData) {
 }
 function getShowScope(showType) {
   const t = String(showType || '').toLowerCase();
+  if (t === 'cross-breed') return 'crossbreed';
   if (t.includes('championship')) return 'championship';
   if (t.includes('major-chase')) return 'all breed';
   if (t.includes('specialty') || t.includes('rare-breed') || t.includes('titled') || t.includes('untitled')) return 'specialty';
@@ -192,6 +202,8 @@ const SS_ENTRY_TITLE_CODES = [
   'BIS','MBIS','RBIS','BISS','MBISS','RBISS',
   'SPRWCH','SPRCH','NATCH','NAT','INTCH','INT','UNICH','UNI',
   'GCH','WCH','CH','TDCH','GHCH','GHGCH','HOF','HOL',
+  // Cross-breed conformation titles — entry-name stripping only.
+  'GRCHCM','CHCM','CM3','CM2','CM',
 
   // Cat and dog activity titles currently used on SS
   'RCCH','RCN','RCI','RCA','RCE',
@@ -1048,6 +1060,15 @@ function filterBreedSpecialty(groups) {
 function conformationAward(recordList, showData, animal, placement, className) {
   // class_name should always be the animal's actual entered class.
   // Higher awards like Best of Breed / Best in Group / Best in Show are stored in placement.
+  //
+  // Cross-breed conformation is deliberately isolated from the normal purebred
+  // point schedule. Class placements stay 5/4/3/2/1, while BIS/RBIS/BOB/CC/RCC
+  // use the dedicated cross-breed values.
+  const isCrossBreed = String(showData.showType || '').toLowerCase() === 'cross-breed';
+  const awardTable = isCrossBreed
+    ? SS_CONFIG.crossBreedConformationPoints
+    : SS_CONFIG.conformationPoints;
+
   recordList.push({
     show_name: showData.showName,
     show_type: 'conformation',
@@ -1055,7 +1076,7 @@ function conformationAward(recordList, showData, animal, placement, className) {
     class_name: className || 'Class 1',
     placement,
     animal_name: animal,
-    points: SS_CONFIG.conformationPoints[placement] || SS_CONFIG.placementPoints[Number(placement)] || 0
+    points: awardTable[placement] || SS_CONFIG.placementPoints[Number(placement)] || 0
   });
 }
 function pickFromCandidates(candidates) {
@@ -1372,7 +1393,112 @@ function buildMajorChaseGroups(groups) {
   })).filter(group => group.breeds.length);
 }
 
+
+// =============================================================
+// CROSS-BREED CONFORMATION
+// Cross-breed shows use breed sections and normal class/challenge judging,
+// but there are NO conformation groups. Every Best of Breed winner advances
+// directly to the single BIS/RBIS final.
+//
+// Expected entry format:
+//
+// BREED NAME
+// Class 1
+// Animal - Owner
+//
+// BREED NAME
+// Class 1a
+// Animal - Owner
+//
+// Additional classes for the current breed can begin with "Class X" directly.
+// =============================================================
+function parseCrossBreedConformation(rawData) {
+  const blocks = splitBlocks(rawData);
+  const breeds = [];
+  let currentBreed = null;
+
+  blocks.forEach(originalBlock => {
+    let block = originalBlock.slice();
+    if (!block.length) return;
+
+    // Breed + Class block.
+    if (block.length >= 2 && isClassLine(block[1])) {
+      const breedName = normalizeBreedName(block[0]);
+      currentBreed = breeds.find(b => b.name.toLowerCase() === breedName.toLowerCase());
+
+      if (!currentBreed) {
+        currentBreed = { name: breedName, classes: [] };
+        breeds.push(currentBreed);
+      }
+
+      block = block.slice(1);
+    }
+
+    // Class-only continuation block.
+    if (!currentBreed || !isClassLine(block[0])) return;
+
+    const className = cleanLine(block[0]);
+    let cls = currentBreed.classes.find(c => c.name.toLowerCase() === className.toLowerCase());
+
+    if (!cls) {
+      cls = { name: className, entries: [] };
+      currentBreed.classes.push(cls);
+    }
+
+    cls.entries.push(...block.slice(1));
+  });
+
+  breeds.forEach(breed => sortConformationClasses(breed.classes));
+  return breeds.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function runCrossBreedConformation(rawData, showData) {
+  const breeds = parseCrossBreedConformation(rawData);
+
+  if (!breeds.length) {
+    throw new Error(
+      'No valid cross-breed entries found. Cross-breed shows do not use group headings; start each breed section with the breed name followed by its classes.'
+    );
+  }
+
+  const lines = [];
+  const records = [];
+  const breedWinners = [];
+
+  addLine(lines, bold('CROSS-BREED CONFORMATION'));
+  addLine(lines, '');
+
+  breeds.forEach(breed => {
+    const winner = judgeBreed(lines, records, showData, breed, {});
+    if (winner) breedWinners.push(winner);
+
+    addLine(lines, '[hr]');
+    addLine(lines, '');
+  });
+
+  // There is no BIG/RBIG stage. All BOB winners go straight to BIS.
+  const rankedShow = pickFromCandidates(breedWinners);
+  const bis = rankedShow[0] || null;
+  const rbis = rankedShow[1] || null;
+
+  if (bis) {
+    addLine(lines, bold('Best in Show') + ': ' + bis.name);
+    conformationAward(records, showData, bis.name, 'Best in Show', bis.className);
+  }
+
+  if (rbis && (!bis || rbis.name !== bis.name)) {
+    addLine(lines, bold('Reserve Best in Show') + ': ' + rbis.name);
+    conformationAward(records, showData, rbis.name, 'Reserve Best in Show', rbis.className);
+  }
+
+  return { lines, records };
+}
+
 function runConformation(rawData, showData) {
+  if (showData.showType === 'cross-breed') {
+    return runCrossBreedConformation(rawData, showData);
+  }
+
   const groups = mergeConformationGroups(parseConformation(rawData));
   if (!groups.length) throw new Error('No valid conformation groups found.');
 
@@ -1612,7 +1738,7 @@ function configureWorkspaceForTab(tabName) {
     if (kicker) kicker.textContent = 'Conformation';
     if (heading) heading.textContent = 'Build Your Conformation Show';
     if (formatLabel) formatLabel.textContent = 'Conformation Format';
-    if (formatHelp) formatHelp.textContent = 'All Breed, Group or Breed Specialty, Rare Breed, Major Chase, Titled, or Untitled.';
+    if (formatHelp) formatHelp.textContent = 'All Breed, Cross Breed, Group or Breed Specialty, Rare Breed, Major Chase, Titled, or Untitled.';
     if (specialtyNote) specialtyNote.className = 'hidden';
   }
 
@@ -2019,6 +2145,7 @@ const SS_ENDURANCE_RACES = [{"key":"northern_circuit_polar_trek","name":"Polar T
 const SS_PHASE1_FORMATS = {
   conformation: [
     ['conformation', 'All Breed Shows'],
+    ['cross-breed', 'Cross Breed Shows'],
     ['group-specialty', 'Group Specialties'],
     ['breed-specialty', 'Breed Specialties'],
     ['rare-breed', 'Rare Breed Shows'],
@@ -5524,6 +5651,33 @@ function sortConformationEntries(rawData) {
 
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+function sortCrossBreedEntries(rawData) {
+  const breeds = parseCrossBreedConformation(rawData);
+  if (!breeds.length) throw new Error('No valid cross-breed entries found to sort.');
+
+  const lines = [];
+  breeds.forEach(breed => {
+    addLine(lines, breed.name.toUpperCase());
+
+    breed.classes
+      .slice()
+      .sort((a,b) => classSortValue(a.name) - classSortValue(b.name) || a.name.localeCompare(b.name))
+      .forEach(cls => {
+        addLine(lines, cls.name);
+        cls.entries
+          .slice()
+          .sort((a,b) => removeDecorations(a).localeCompare(removeDecorations(b)))
+          .forEach(entry => addLine(lines, entry));
+        addLine(lines, '');
+      });
+
+    addLine(lines, '');
+  });
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function sortEntriesOnly() {
   hideMessage();
   const rawData = $('rawData').value;
@@ -5532,7 +5686,9 @@ function sortEntriesOnly() {
   savedResults = ''; savedShowData = null; savedRecords = [];
   if (!rawData.trim()) { showMessage('error', 'Please paste entries before sorting.'); return; }
   try {
-    savedResults = sortConformationEntries(rawData);
+    savedResults = resolveLegacyShowType() === 'cross-breed'
+      ? sortCrossBreedEntries(rawData)
+      : sortConformationEntries(rawData);
     renderSortedResults(savedResults);
     showMessage('success', 'Entries sorted for copying only. No show records were created and nothing is ready to upload.');
     captureWorkspaceState();
