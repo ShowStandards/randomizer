@@ -4929,61 +4929,96 @@ async function runHuntingClub(rawData, showData) {
   addLine(lines, '');
 
   for (const rawEntry of entries) {
-    const match = findAnimal(rawEntry, animalMap);
+    // Pack Hunting is judged as one pack, but every dog must receive its own
+    // Hunting Club show_records row. Other Hunting families remain individual.
+    let entryMembers = [rawEntry];
 
-    if (match.status !== 'matched') {
-      declined.push({
-        entry: rawEntry,
-        reason: match.status === 'ambiguous'
-          ? 'Duplicate exact registry name'
-          : 'Exact registry animal not found'
-      });
-      continue;
-    }
+    if (familyKey === 'pack_hunting') {
+      const parts = String(rawEntry || '')
+        .split(/\s+[\-‐‑‒–—―]\s+/)
+        .map(cleanLine)
+        .filter(Boolean);
 
-    const animal = match.animal;
-
-    if (cleanLine(animal.species).toLowerCase() !== 'dog') {
-      declined.push({ entry: rawEntry, reason:'Hunting Club Field Tests are dogs only' });
-      continue;
-    }
-
-    // Breed-restricted historical field tests.
-    if (Array.isArray(family.eligibleBreeds) && family.eligibleBreeds.length) {
-      const animalBreed = cleanLine(animal.breed).toLowerCase();
-      const eligible = family.eligibleBreeds.some(breed =>
-        cleanLine(breed).toLowerCase() === animalBreed
-      );
-
-      if (!eligible) {
-        declined.push({
-          entry: rawEntry,
-          reason: family.label + ' is limited to ' + family.eligibleBreeds.join(' and ')
-        });
-        continue;
+      // Pack format: Dog 1 - Dog 2 - Dog 3 - Owner
+      // Individual format remains: Dog - Owner
+      if (parts.length >= 3) {
+        const owner = parts[parts.length - 1];
+        entryMembers = parts.slice(0, -1).map(memberName => memberName + ' - ' + owner);
       }
     }
 
-    const prior = await huntingPriorQualifications(
-      supabase, animal.id, familyKey, specializationKey
-    );
+    const matchedMembers = [];
+    let entryDeclined = false;
 
-    if (levelKey === 'expert' && prior.beginners < SS_HUNTING_LEVELS.beginners.titleQs) {
-      declined.push({
-        entry: rawEntry,
-        reason: 'Requires the Beginners ' + family.label + ' — ' + specialization.label + ' title'
-      });
-      continue;
+    // Validate every member before judging. For Pack Hunting, the pack is not
+    // run unless every entered dog can receive the result safely.
+    for (const memberEntry of entryMembers) {
+      const match = findAnimal(memberEntry, animalMap);
+
+      if (match.status !== 'matched') {
+        declined.push({
+          entry: memberEntry,
+          reason: match.status === 'ambiguous'
+            ? 'Duplicate exact registry name'
+            : 'Exact registry animal not found'
+        });
+        entryDeclined = true;
+        continue;
+      }
+
+      const animal = match.animal;
+
+      if (cleanLine(animal.species).toLowerCase() !== 'dog') {
+        declined.push({ entry: memberEntry, reason:'Hunting Club Field Tests are dogs only' });
+        entryDeclined = true;
+        continue;
+      }
+
+      // Breed-restricted historical field tests.
+      if (Array.isArray(family.eligibleBreeds) && family.eligibleBreeds.length) {
+        const animalBreed = cleanLine(animal.breed).toLowerCase();
+        const eligible = family.eligibleBreeds.some(breed =>
+          cleanLine(breed).toLowerCase() === animalBreed
+        );
+
+        if (!eligible) {
+          declined.push({
+            entry: memberEntry,
+            reason: family.label + ' is limited to ' + family.eligibleBreeds.join(' and ')
+          });
+          entryDeclined = true;
+          continue;
+        }
+      }
+
+      const prior = await huntingPriorQualifications(
+        supabase, animal.id, familyKey, specializationKey
+      );
+
+      if (levelKey === 'expert' && prior.beginners < SS_HUNTING_LEVELS.beginners.titleQs) {
+        declined.push({
+          entry: memberEntry,
+          reason: 'Requires the Beginners ' + family.label + ' — ' + specialization.label + ' title'
+        });
+        entryDeclined = true;
+        continue;
+      }
+
+      if (levelKey === 'masters' && prior.expert < SS_HUNTING_LEVELS.expert.titleQs) {
+        declined.push({
+          entry: memberEntry,
+          reason: 'Requires the Expert ' + family.label + ' — ' + specialization.label + ' title'
+        });
+        entryDeclined = true;
+        continue;
+      }
+
+      matchedMembers.push({ entry: memberEntry, animal });
     }
 
-    if (levelKey === 'masters' && prior.expert < SS_HUNTING_LEVELS.expert.titleQs) {
-      declined.push({
-        entry: rawEntry,
-        reason: 'Requires the Expert ' + family.label + ' — ' + specialization.label + ' title'
-      });
-      continue;
-    }
+    if (entryDeclined || !matchedMembers.length) continue;
 
+    // One judged result for the whole entry/pack.
     const scenario = huntingScenario(levelKey);
     const scores = family.categories.map(category => ({
       category,
@@ -4995,6 +5030,8 @@ async function runHuntingClub(rawData, showData) {
     const dqReason = huntingDqReason(familyKey, levelKey);
     const qualified = !dqReason && total >= level.passScore && categoryPass;
 
+    // Keep the results display as the original entry. Pack members are only
+    // expanded when records are created below.
     addLine(lines, bold(rawEntry));
     addLine(lines,
       'Scenario: ' + scenario.terrain + ' • ' + scenario.weather + ' • ' +
@@ -5017,24 +5054,28 @@ async function runHuntingClub(rawData, showData) {
     }
     addLine(lines, '');
 
-    records.push({
-      show_name: showData.showName,
-      show_type: 'activity',
-      show_scope: 'association',
-      association_key: 'hunting_club',
-      association_event_type: 'field_test',
-      activity_key: null,
-      class_name: 'Hunting Field Test - ' + family.label + ' - ' + specialization.label + ' - ' + level.label,
-      placement: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
-      animal_name: rawEntry,
-      points: 0,
-      score: total,
-      max_score: 200,
-      passed: qualified,
-      score_label: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
-      hunting_family: familyKey,
-      hunting_specialization: specializationKey,
-      hunting_level: levelKey
+    // Individual tests create one row. Pack Hunting creates one identical
+    // result row for every dog in the pack so titles track per animal.
+    matchedMembers.forEach(member => {
+      records.push({
+        show_name: showData.showName,
+        show_type: 'activity',
+        show_scope: 'association',
+        association_key: 'hunting_club',
+        association_event_type: 'field_test',
+        activity_key: null,
+        class_name: 'Hunting Field Test - ' + family.label + ' - ' + specialization.label + ' - ' + level.label,
+        placement: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
+        animal_name: member.entry,
+        points: 0,
+        score: total,
+        max_score: 200,
+        passed: qualified,
+        score_label: dqReason ? 'DQ' : (qualified ? 'Qualified' : 'Not Qualified'),
+        hunting_family: familyKey,
+        hunting_specialization: specializationKey,
+        hunting_level: levelKey
+      });
     });
   }
 
