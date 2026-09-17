@@ -2642,9 +2642,9 @@ function ensureSpanielControls() {
       </div>
     </div>
     <div class="ss-field hidden" id="spanielWorkingField">
-      <label>Working Class</label>
+      <label>Working Classes</label>
       <select id="spanielWorkingActivity"></select>
-      <small>Top three count toward DpS/VtS only when the class has at least 6 dogs.</small>
+      <small>Paste classes as Activity - Breed. Each breed/activity class is randomized separately; identical Activity + Breed blocks are combined. Top three count toward DpS/VtS only when that class has at least 6 dogs.</small>
     </div>
     <div class="ss-field hidden" id="spanielChallengeField">
       <label>Challenge Class</label>
@@ -2722,6 +2722,63 @@ function spanielWorkingLabel(key){
   return ({hunting:'Hunting',retrieving:'Retrieving',falconry:'Falconry',shed_dog:'Shed Dog',tracking:'Tracking',scent_work:'Scent Work'})[key] || key;
 }
 
+function parseSpanielWorkingClasses(rawData){
+  const activityMap = {
+    'hunting': ['hunting','Hunting'],
+    'retrieving': ['retrieving','Retrieving'],
+    'falconry': ['falconry','Falconry'],
+    'shed dog': ['shed_dog','Shed Dog'],
+    'tracking': ['tracking','Tracking'],
+    'scent work': ['scent_work','Scent Work']
+  };
+
+  const groups = new Map();
+  let current = null;
+
+  String(rawData || '').split(/\r?\n/).forEach(rawLine => {
+    const line = cleanLine(rawLine);
+    if(!line || isBracketHeaderLine(line)) return;
+
+    // Working input headers are: Activity - BREED
+    // They are class headers, never animal entries.
+    const header = line.match(/^(Hunting|Retrieving|Falconry|Shed\s*Dog|Tracking|Scent\s*Work)\s*-\s*(.+)$/i);
+    if(header){
+      const activityNorm = cleanLine(header[1]).toLowerCase().replace(/\s+/g,' ');
+      const activityInfo = activityMap[activityNorm];
+      if(!activityInfo){
+        current = null;
+        return;
+      }
+
+      let breed = cleanLine(header[2]);
+      // Treat harmless singular/plural Spaniel header variants as the same breed.
+      breed = breed.replace(/\bSpaniels\b$/i,'Spaniel');
+
+      const breedKey = breed.toLowerCase().replace(/\s+/g,' ');
+      const key = activityInfo[0] + '||' + breedKey;
+
+      if(!groups.has(key)){
+        groups.set(key,{
+          activityKey: activityInfo[0],
+          activityLabel: activityInfo[1],
+          breed,
+          entries:[]
+        });
+      }
+      current = groups.get(key);
+      return;
+    }
+
+    // Anything before the first Activity - Breed header is ignored.
+    // Within a class, only real animal-entry lines are accepted.
+    if(current && looksLikeAnimalEntry(line)){
+      current.entries.push(line);
+    }
+  });
+
+  return [...groups.values()].filter(group => group.entries.length);
+}
+
 function spanielRecordText(record){
   return cleanLine([record.class,record.class_name,record.placement,record.score_label,record.activity_key,record.association_event_type].filter(Boolean).join(' ')).toLowerCase();
 }
@@ -2784,34 +2841,52 @@ async function runSpanielClub(rawData, showData){
     return result;
   }
 
-  const entries=herdingEntryLines(rawData);
-  if(!entries.length) throw new Error('No valid Spaniel Club entries found. Use: Animal Name - Owner');
-
   if(event==='working'){
-    const activityKey=$('spanielWorkingActivity')?.value || 'hunting';
-    const activity=spanielWorkingLabel(activityKey);
-    const shuffled=shuffle(entries.slice());
-    const classSize=shuffled.length;
+    const classes=parseSpanielWorkingClasses(rawData);
+    if(!classes.length){
+      throw new Error('No valid Spaniel Club working classes found. Use headers like: Hunting - Blue Picardy Spaniel, followed by Animal Name - Owner entries.');
+    }
 
-    // All eligible Spaniels entered in this activity compete together.
-    // Companion/Hunting is NOT a judging division, so the full combined class
-    // size is what is stored for DpS/VtS 6+ dog qualification checks.
-    addLine(lines,bold('Spaniel Club Working Class'));
-    addLine(lines,bold(activity));
-    addLine(lines,'Undivided Class Size: '+classSize+' dogs');
+    addLine(lines,bold('Spaniel Club Working Classes'));
     addLine(lines,'');
-    shuffled.forEach((name,index)=>{
-      const place=index+1;
-      addLine(lines,placementLabel(place)+' '+name);
-      records.push({
-        show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',association_event_type:'working',
-        activity_key:activityKey,class_name:'Spaniel Club Working - '+activity+' - '+classSize+' dogs',
-        placement:String(place),animal_name:name,points:0,score:null,max_score:null,passed:null,
-        score_label:'Undivided Spaniel Club activity • '+classSize+' dogs'
+
+    classes.forEach((cls,classIndex)=>{
+      const shuffled=shuffle(cls.entries.slice());
+      const classSize=shuffled.length;
+
+      addLine(lines,bold(cls.activityLabel+' - '+cls.breed));
+      addLine(lines,'Class Size: '+classSize+' dogs');
+      addLine(lines,'');
+
+      shuffled.forEach((name,index)=>{
+        const place=index+1;
+        addLine(lines,placementLabel(place)+' '+name);
+        records.push({
+          show_name:showData.showName,
+          show_type:'activity',
+          show_scope:'association',
+          association_key:'spaniel_club',
+          association_event_type:'working',
+          activity_key:cls.activityKey,
+          class_name:'Spaniel Club Working - '+cls.activityLabel+' - '+cls.breed+' - '+classSize+' dogs',
+          placement:String(place),
+          animal_name:name,
+          points:0,
+          score:null,
+          max_score:null,
+          passed:null,
+          score_label:cls.activityLabel+' - '+cls.breed+' • '+classSize+' dogs'
+        });
       });
+
+      if(classIndex<classes.length-1) addLine(lines,'');
     });
+
     return {lines,records};
   }
+
+  const entries=herdingEntryLines(rawData);
+  if(!entries.length) throw new Error('No valid Spaniel Club entries found. Use: Animal Name - Owner');
 
   let challengeKey=$('spanielChallengeType')?.value || 'natural_ability';
   if(event==='complete_challenge') challengeKey='complete';
