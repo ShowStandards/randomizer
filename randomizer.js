@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: SPANIEL CHALLENGE CLEAN RESULTS 2026-09-17');
+console.log('SS RANDOMIZER BUILD: SPANIEL CHALLENGE GROUPED CLASSES FIX 2026-09-17');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
@@ -2707,10 +2707,60 @@ function renderSpanielControls() {
   }
 }
 
-function spanielScoreBand(total){
-  // Spaniel Challenges only need a qualification state.
-  // Performance is already represented by the numeric score.
-  return {qualified:total>=70};
+function spanielScoreBand(total, scores){
+  // A Spaniel Challenge Q requires both 70/100 overall and at least 30%
+  // of the available points in every scored section.
+  const sectionMinimumsMet = Array.isArray(scores) && scores.every(row =>
+    Number(row?.score || 0) >= (Number(row?.max || 0) * 0.30)
+  );
+  return {qualified:total>=70 && sectionMinimumsMet};
+}
+
+function spanielChallengeKeyFromHeader(line){
+  const text=cleanLine(line).replace(/\s+-\s+.+$/,'').trim().toLowerCase();
+  for(const [key,challenge] of Object.entries(SS_SPANIEL_CHALLENGES)){
+    if(key==='complete') continue;
+    if(text===challenge.label.toLowerCase()) return key;
+  }
+  return null;
+}
+
+function parseSpanielChallengeClasses(rawData, fallbackKey){
+  const groups=[];
+  let current=null;
+  let foundHeader=false;
+
+  String(rawData || '').split(/\r?\n/).forEach(rawLine=>{
+    const line=cleanLine(rawLine);
+    if(!line || isBracketHeaderLine(line)) return;
+
+    const challengeKey=spanielChallengeKeyFromHeader(line);
+    if(challengeKey){
+      foundHeader=true;
+      current={
+        challengeKey,
+        header:line,
+        entries:[]
+      };
+      groups.push(current);
+      return;
+    }
+
+    if(looksLikeAnimalEntry(line)){
+      if(!current){
+        current={challengeKey:fallbackKey,header:null,entries:[]};
+        groups.push(current);
+      }
+      current.entries.push(line);
+    }
+  });
+
+  if(!foundHeader){
+    const entries=herdingEntryLines(rawData);
+    return entries.length ? [{challengeKey:fallbackKey,header:null,entries}] : [];
+  }
+
+  return groups.filter(group=>group.entries.length);
 }
 
 
@@ -3047,13 +3097,10 @@ async function runSpanielClub(rawData, showData){
     return {lines,records};
   }
 
-  const entries=herdingEntryLines(rawData);
-  if(!entries.length) throw new Error('No valid Spaniel Club entries found. Use: Animal Name - Owner');
-
   let challengeKey=$('spanielChallengeType')?.value || 'natural_ability';
   if(event==='complete_challenge') challengeKey='complete';
-  const challenge=SS_SPANIEL_CHALLENGES[challengeKey];
-  if(!challenge) throw new Error('Choose a valid Spaniel Club Challenge.');
+  const selectedChallenge=SS_SPANIEL_CHALLENGES[challengeKey];
+  if(!selectedChallenge) throw new Error('Choose a valid Spaniel Club Challenge.');
 
   if(event==='complete_challenge' && ($('spanielShowLevel')?.value || 'regular')!=='championship'){
     throw new Error('The Complete Spaniel Challenge is only offered at a Spaniel Club Championship Show.');
@@ -3066,38 +3113,56 @@ async function runSpanielClub(rawData, showData){
     animalMap=await loadAnimalsMap(supabase);
   }
 
-  addLine(lines,bold(challenge.label));
-  addLine(lines,'Qualification: 70/100');
+  const challengeGroups = event==='complete_challenge'
+    ? [{challengeKey:'complete',header:null,entries:herdingEntryLines(rawData)}]
+    : parseSpanielChallengeClasses(rawData, challengeKey);
+
+  if(!challengeGroups.length || !challengeGroups.some(group=>group.entries.length)){
+    throw new Error('No valid Spaniel Club entries found. Use: Animal Name - Owner');
+  }
+
+  addLine(lines,'Qualification: 70/100 plus at least 30% in every section');
   addLine(lines,'');
 
-  for(const rawEntry of entries){
-    if(event==='complete_challenge'){
-      const match=findAnimal(rawEntry,animalMap);
-      if(match.status!=='matched'){
-        addLine(lines,bold(rawEntry)); addLine(lines,'DECLINED — Exact registry dog not found.'); addLine(lines,'');
-        continue;
-      }
-      const eligible=await spanielHasDpS(supabase,match.animal.id);
-      if(!eligible){
-        addLine(lines,bold(rawEntry)); addLine(lines,'DECLINED — Requires an earned DpS, VtS, or CSp title.'); addLine(lines,'');
-        continue;
-      }
+  for(const group of challengeGroups){
+    const challenge=SS_SPANIEL_CHALLENGES[group.challengeKey] || selectedChallenge;
+    if(group.header){
+      addLine(lines,bold(group.header));
+      addLine(lines,'');
+    } else if(challengeGroups.length===1){
+      addLine(lines,bold(challenge.label));
+      addLine(lines,'');
     }
 
-    const scores=spanielChallengeScores(challenge);
-    const total=scores.reduce((sum,row)=>sum+row.score,0);
-    const band=spanielScoreBand(total);
-    addLine(lines,bold(rawEntry));
-    scores.forEach(row=>addLine(lines,row.label+': '+row.score+'/'+row.max));
-    addLine(lines,bold(total+'/100'+(band.qualified?' — Q':'')));
-    addLine(lines,'');
-    records.push({
-      show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',
-      association_event_type:event==='complete_challenge'?'complete_challenge':'challenge',activity_key:null,
-      class_name:'Spaniel Club Challenge - '+challenge.label,placement:band.qualified?'Qualified':'Not Qualified',animal_name:rawEntry,
-      points:0,score:total,max_score:100,passed:band.qualified,
-      score_label:band.qualified?'Q':null
-    });
+    for(const rawEntry of group.entries){
+      if(event==='complete_challenge'){
+        const match=findAnimal(rawEntry,animalMap);
+        if(match.status!=='matched'){
+          addLine(lines,bold(rawEntry)); addLine(lines,'DECLINED — Exact registry dog not found.'); addLine(lines,'');
+          continue;
+        }
+        const eligible=await spanielHasDpS(supabase,match.animal.id);
+        if(!eligible){
+          addLine(lines,bold(rawEntry)); addLine(lines,'DECLINED — Requires an earned DpS, VtS, or CSp title.'); addLine(lines,'');
+          continue;
+        }
+      }
+
+      const scores=spanielChallengeScores(challenge);
+      const total=scores.reduce((sum,row)=>sum+row.score,0);
+      const band=spanielScoreBand(total,scores);
+      addLine(lines,bold(rawEntry));
+      scores.forEach(row=>addLine(lines,row.label+': '+row.score+'/'+row.max));
+      addLine(lines,bold(total+'/100'+(band.qualified?' — Q':'')));
+      addLine(lines,'');
+      records.push({
+        show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',
+        association_event_type:event==='complete_challenge'?'complete_challenge':'challenge',activity_key:null,
+        class_name:'Spaniel Club Challenge - '+challenge.label,placement:band.qualified?'Qualified':'Not Qualified',animal_name:rawEntry,
+        points:0,score:total,max_score:100,passed:band.qualified,
+        score_label:band.qualified?'Q':null
+      });
+    }
   }
   if(!records.length && event==='complete_challenge') throw new Error('No eligible Complete Spaniel Challenge entries were found.');
   return {lines,records};
