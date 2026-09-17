@@ -129,8 +129,28 @@ function extractTitle(name) {
 function isMultiAnimalClass(name) { return /\b(pack|team|relay|brace)\b/i.test(String(name || '')); }
 function expandTeamEntries(className, entry) {
   if (!isMultiAnimalClass(className)) return [entry];
-  const parts = String(entry || '').split(/\s+-\s+/).map(cleanLine).filter(Boolean);
-  return parts.length > 1 ? parts : [entry];
+
+  const raw = cleanLine(entry);
+  if (!raw) return [];
+
+  // Multi-animal entries are displayed as:
+  // Dog One & Dog Two - Owner
+  // The final " - Owner" belongs to the whole brace/team and must NOT be
+  // mistaken for the separator between animals.
+  const ownerParts = raw.split(/\s+-\s+/);
+  const owner = ownerParts.length > 1 ? ownerParts.pop().trim() : '';
+  const animalText = ownerParts.join(' - ').trim();
+
+  // Brace/team members are separated by an ampersand. Keep the posted result
+  // combined, but create one internal record per animal so every dog receives
+  // the same class placement/points and can be matched to the registry.
+  const members = animalText
+    .split(/\s+&\s+/)
+    .map(cleanLine)
+    .filter(Boolean);
+
+  if (members.length <= 1) return [entry];
+  return members.map(name => owner ? name + ' - ' + owner : name);
 }
 function addLine(lines, text) { if (text === undefined || text === null) lines.push(''); else lines.push(String(text)); }
 function bold(text) { return '[b]' + text + '[/b]'; }
@@ -2641,10 +2661,18 @@ function ensureSpanielControls() {
 function renderSpanielWorkingOptions() {
   const sel=$('spanielWorkingActivity');
   if(!sel) return;
-  const division=$('spanielDivision')?.value || 'hunting';
-  const opts=division==='companion'
-    ? [['tracking','Tracking'],['scent_work','Scent Work'],['shed_dog','Shed Dog']]
-    : [['hunting','Hunting'],['retrieving','Retrieving'],['falconry','Falconry'],['shed_dog','Shed Dog']];
+
+  // Spaniel Club activities are judged as ONE undivided activity class.
+  // Companion/Hunting classifications determine which activities a breed is
+  // eligible for; they do not create separate competitive divisions.
+  const opts=[
+    ['hunting','Hunting'],
+    ['retrieving','Retrieving'],
+    ['tracking','Tracking'],
+    ['scent_work','Scent Work'],
+    ['falconry','Falconry'],
+    ['shed_dog','Shed Dog']
+  ];
   const previous=sel.value;
   sel.innerHTML=opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
   if([...sel.options].some(o=>o.value===previous)) sel.value=previous;
@@ -2661,7 +2689,9 @@ function renderSpanielControls() {
   const event=$('herdingEventType')?.value || 'conformation';
   $('spanielWorkingField').className=event==='working'?'ss-field':'hidden';
   $('spanielChallengeField').className=event==='challenge'?'ss-field':'hidden';
-  $('spanielDivisionField').className=event==='working'?'ss-field':'hidden';
+  // Activities are undivided. Keep the old division control in the DOM for
+  // backwards compatibility, but do not use or display it for judging.
+  $('spanielDivisionField').className='hidden';
   const challengeSel=$('spanielChallengeType');
   if(challengeSel && !challengeSel.options.length){
     challengeSel.innerHTML=Object.entries(SS_SPANIEL_CHALLENGES)
@@ -2758,23 +2788,26 @@ async function runSpanielClub(rawData, showData){
   if(!entries.length) throw new Error('No valid Spaniel Club entries found. Use: Animal Name - Owner');
 
   if(event==='working'){
-    const division=$('spanielDivision')?.value || 'hunting';
-    const activityKey=$('spanielWorkingActivity')?.value || (division==='companion'?'tracking':'hunting');
+    const activityKey=$('spanielWorkingActivity')?.value || 'hunting';
     const activity=spanielWorkingLabel(activityKey);
     const shuffled=shuffle(entries.slice());
     const classSize=shuffled.length;
+
+    // All eligible Spaniels entered in this activity compete together.
+    // Companion/Hunting is NOT a judging division, so the full combined class
+    // size is what is stored for DpS/VtS 6+ dog qualification checks.
     addLine(lines,bold('Spaniel Club Working Class'));
-    addLine(lines,bold((division==='companion'?'Companion':'Hunting / Working')+' Spaniels — '+activity));
-    addLine(lines,'Class Size: '+classSize+' dogs');
+    addLine(lines,bold(activity));
+    addLine(lines,'Undivided Class Size: '+classSize+' dogs');
     addLine(lines,'');
     shuffled.forEach((name,index)=>{
       const place=index+1;
       addLine(lines,placementLabel(place)+' '+name);
       records.push({
         show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',association_event_type:'working',
-        activity_key:activityKey,class_name:'Spaniel Club Working - '+(division==='companion'?'Companion':'Hunting')+' - '+activity+' - '+classSize+' dogs',
+        activity_key:activityKey,class_name:'Spaniel Club Working - '+activity+' - '+classSize+' dogs',
         placement:String(place),animal_name:name,points:0,score:null,max_score:null,passed:null,
-        score_label:'Division: '+(division==='companion'?'Companion':'Hunting')+' • '+classSize+' dogs'
+        score_label:'Undivided Spaniel Club activity • '+classSize+' dogs'
       });
     });
     return {lines,records};
