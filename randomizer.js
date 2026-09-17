@@ -160,6 +160,12 @@ function getShowTypeKind(showType, showData) {
     return showData.associationEventType === 'prospect' ? 'conformation' : 'activity';
   }
 
+  // Spaniel Club working classes and challenges are activity records.
+  // Only the club's conformation event belongs in conformation totals.
+  if (showData && showData.associationKey === 'spaniel_club') {
+    return showData.associationEventType === 'conformation' ? 'conformation' : 'activity';
+  }
+
   if (showData && showData.associationEventType === 'gaiting') return 'activity';
   if (showData && showData.associationEventType === 'breeding') return 'conformation';
   if (showData && showData.associationEventType === 'halter') return 'conformation';
@@ -2871,7 +2877,8 @@ async function runSpanielClub(rawData, showData){
           class_name:'Spaniel Club Working - '+cls.activityLabel+' - '+cls.breed+' - '+classSize+' dogs',
           placement:String(place),
           animal_name:name,
-          points:0,
+          // Standard activity placement points: 1st-5th = 5/4/3/2/1; 6th+ = 0.
+          points:SS_CONFIG.placementPoints[place] || 0,
           score:null,
           max_score:null,
           passed:null,
