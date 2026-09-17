@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: SPANIEL COMPANION ROUTING FIX 2026-09-17');
+console.log('SS RANDOMIZER BUILD: SPANIEL CHALLENGE CLEAN RESULTS 2026-09-17');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
@@ -2708,10 +2708,9 @@ function renderSpanielControls() {
 }
 
 function spanielScoreBand(total){
-  if(total>=70) return {qualified:true,label:'Qualified'};
-  if(total>=50) return {qualified:false,label:'Pass — Not Qualified'};
-  if(total>=30) return {qualified:false,label:'Developing — Not Qualified'};
-  return {qualified:false,label:'Failed'};
+  // Spaniel Challenges only need a qualification state.
+  // Performance is already represented by the numeric score.
+  return {qualified:total>=70};
 }
 
 
@@ -3090,15 +3089,14 @@ async function runSpanielClub(rawData, showData){
     const band=spanielScoreBand(total);
     addLine(lines,bold(rawEntry));
     scores.forEach(row=>addLine(lines,row.label+': '+row.score+'/'+row.max));
-    addLine(lines,bold(total+'/100 — '+band.label.toUpperCase()));
+    addLine(lines,bold(total+'/100'+(band.qualified?' — Q':'')));
     addLine(lines,'');
-    const breakdown=scores.map(row=>row.label+': '+row.score+'/'+row.max).join('; ');
     records.push({
       show_name:showData.showName,show_type:'activity',show_scope:'association',association_key:'spaniel_club',
       association_event_type:event==='complete_challenge'?'complete_challenge':'challenge',activity_key:null,
       class_name:'Spaniel Club Challenge - '+challenge.label,placement:band.qualified?'Qualified':'Not Qualified',animal_name:rawEntry,
       points:0,score:total,max_score:100,passed:band.qualified,
-      score_label:band.label+' | '+breakdown
+      score_label:band.qualified?'Q':null
     });
   }
   if(!records.length && event==='complete_challenge') throw new Error('No eligible Complete Spaniel Challenge entries were found.');
