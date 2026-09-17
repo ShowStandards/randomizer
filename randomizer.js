@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: CGC FIX LIVE 2026-09-03 BUILD A');
+console.log('SS RANDOMIZER BUILD: SPANIEL WORKING ACTIVITY FIX 2026-09-17');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
@@ -1964,7 +1964,8 @@ async function restoreWorkspaceState(tabName) {
 
   updatePhase1UI();
   await restoreChampionshipSelections(state);
-  if (isEndurance) renderEnduranceControls();
+  // updatePhase1UI() above already restores/render specialty-specific controls,
+  // including Endurance. Do not reference its local isEndurance flag here.
   updateSetupSummary();
 }
 
@@ -2882,7 +2883,7 @@ async function runSpanielClub(rawData, showData){
           score:null,
           max_score:null,
           passed:null,
-          score_label:cls.activityLabel+' - '+cls.breed+' • '+classSize+' dogs'
+          score_label:null
         });
       });
 
