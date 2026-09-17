@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: SPANIEL COMPANION CLASSES 2026-09-17');
+console.log('SS RANDOMIZER BUILD: SPANIEL COMPANION ROUTING FIX 2026-09-17');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
@@ -2916,7 +2916,52 @@ async function runSpanielClub(rawData, showData){
 
   if(event==='working'){
     const classes=parseSpanielWorkingClasses(rawData);
+
+    // Safety net: if the shared specialty-event dropdown has retained "working"
+    // but the pasted data is unmistakably a canonical Companion Class block,
+    // route it to the Companion Class runner instead of throwing the Working
+    // Classes error.
     if(!classes.length){
+      const companionClasses=parseSpanielCompanionClasses(rawData);
+      if(companionClasses.length){
+        addLine(lines,bold('Spaniel Club Companion Classes'));
+        addLine(lines,'');
+
+        companionClasses.forEach((cls,classIndex)=>{
+          const shuffled=shuffle(cls.entries.slice());
+          const classSize=shuffled.length;
+
+          addLine(lines,bold(cls.activityLabel+' - '+cls.divisionLabel));
+          addLine(lines,'Class Size: '+classSize+' dogs');
+          addLine(lines,'');
+
+          shuffled.forEach((name,index)=>{
+            const place=index+1;
+            addLine(lines,placementLabel(place)+' '+name);
+            records.push({
+              show_name:showData.showName,
+              show_type:'activity',
+              show_scope:'association',
+              association_key:'spaniel_club',
+              association_event_type:'companion',
+              activity_key:cls.activityKey,
+              class_name:'Spaniel Club Companion - '+cls.activityLabel+' - '+cls.divisionLabel+' - '+classSize+' dogs',
+              placement:String(place),
+              animal_name:name,
+              points:SS_CONFIG.placementPoints[place] || 0,
+              score:null,
+              max_score:null,
+              passed:null,
+              score_label:null
+            });
+          });
+
+          if(classIndex<companionClasses.length-1) addLine(lines,'');
+        });
+
+        return {lines,records};
+      }
+
       throw new Error('No valid Spaniel Club working classes found. Use headers like: Hunting - Blue Picardy Spaniel, followed by Animal Name - Owner entries.');
     }
 
