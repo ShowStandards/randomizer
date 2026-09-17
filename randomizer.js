@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: SPANIEL WORKING ACTIVITY FIX 2026-09-17');
+console.log('SS RANDOMIZER BUILD: SPANIEL COMPANION CLASSES 2026-09-17');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
@@ -2517,7 +2517,7 @@ function relabelSpecialtyPanel(systemKey) {
     ,spaniel_club: {
       title:'Spaniel Club',
       event:'Spaniel Club Event',
-      help:'Run Spaniel Club conformation, working classes, and scored Challenge Classes.'
+      help:'Run Spaniel Club conformation, Working Classes, Companion Classes, and scored Challenge Classes.'
     }
   }[systemKey];
 
@@ -2714,6 +2714,72 @@ function spanielScoreBand(total){
   return {qualified:false,label:'Failed'};
 }
 
+
+const SS_SPANIEL_COMPANION_ACTIVITIES = new Map([
+  ['air retrieve', ['air_retrieve', 'Air Retrieve']],
+  ['agility', ['agility', 'Agility']],
+  ['barn hunt', ['barn_hunt', 'Barn Hunt']],
+  ['disc dog', ['disc_dog', 'Disc Dog']],
+  ['dock diving', ['dock_diving', 'Dock Diving']],
+  ['fast cat', ['fast_cat', 'Fast CAT']],
+  ['flyball', ['flyball', 'Flyball']],
+  ['heel work to music', ['heel_work_to_music', 'Heel Work to Music']],
+  ['hydrodash', ['hydrodash', 'Hydrodash']],
+  ['musical freestyle', ['musical_freestyle', 'Musical Freestyle']],
+  ['obedience', ['obedience', 'Obedience']],
+  ['rally', ['rally', 'Rally']],
+  ['water work', ['water_work', 'Water Work']]
+]);
+
+const SS_SPANIEL_COMPANION_DIVISIONS = new Map([
+  ['open', 'Open'],
+  ['small spaniels', 'Small Spaniels'],
+  ['large spaniels', 'Large Spaniels'],
+  ['specials class', 'Specials Class'],
+  ['champions class', 'Champions Class']
+]);
+
+function parseSpanielCompanionClasses(rawData){
+  const groups = new Map();
+  let current = null;
+
+  String(rawData || '').split(/\r?\n/).forEach(rawLine => {
+    const line = cleanLine(rawLine);
+    if(!line || isBracketHeaderLine(line)) return;
+
+    const header = line.match(/^(.+?)\s*-\s*(Open|Small Spaniels|Large Spaniels|Specials Class|Champions Class)$/i);
+    if(header){
+      const activityNorm = cleanLine(header[1]).toLowerCase().replace(/\s+/g,' ');
+      const divisionNorm = cleanLine(header[2]).toLowerCase().replace(/\s+/g,' ');
+      const activityInfo = SS_SPANIEL_COMPANION_ACTIVITIES.get(activityNorm);
+      const divisionLabel = SS_SPANIEL_COMPANION_DIVISIONS.get(divisionNorm);
+
+      if(!activityInfo || !divisionLabel){
+        current = null;
+        return;
+      }
+
+      const key = activityInfo[0] + '||' + divisionNorm;
+      if(!groups.has(key)){
+        groups.set(key,{
+          activityKey: activityInfo[0],
+          activityLabel: activityInfo[1],
+          divisionLabel,
+          entries:[]
+        });
+      }
+      current = groups.get(key);
+      return;
+    }
+
+    if(current && looksLikeAnimalEntry(line)){
+      current.entries.push(line);
+    }
+  });
+
+  return [...groups.values()].filter(group => group.entries.length);
+}
+
 function spanielChallengeScores(challenge){
   // One underlying performance factor keeps a dog's category scores coherent,
   // while category jitter prevents every section from looking identical.
@@ -2879,6 +2945,50 @@ async function runSpanielClub(rawData, showData){
           placement:String(place),
           animal_name:name,
           // Standard activity placement points: 1st-5th = 5/4/3/2/1; 6th+ = 0.
+          points:SS_CONFIG.placementPoints[place] || 0,
+          score:null,
+          max_score:null,
+          passed:null,
+          score_label:null
+        });
+      });
+
+      if(classIndex<classes.length-1) addLine(lines,'');
+    });
+
+    return {lines,records};
+  }
+
+  if(event==='companion'){
+    const classes=parseSpanielCompanionClasses(rawData);
+    if(!classes.length){
+      throw new Error('No valid Spaniel Club Companion Classes found. Use headers like: Agility - Open or Rally - Small Spaniels, followed by Animal Name - Owner entries.');
+    }
+
+    addLine(lines,bold('Spaniel Club Companion Classes'));
+    addLine(lines,'');
+
+    classes.forEach((cls,classIndex)=>{
+      const shuffled=shuffle(cls.entries.slice());
+      const classSize=shuffled.length;
+
+      addLine(lines,bold(cls.activityLabel+' - '+cls.divisionLabel));
+      addLine(lines,'Class Size: '+classSize+' dogs');
+      addLine(lines,'');
+
+      shuffled.forEach((name,index)=>{
+        const place=index+1;
+        addLine(lines,placementLabel(place)+' '+name);
+        records.push({
+          show_name:showData.showName,
+          show_type:'activity',
+          show_scope:'association',
+          association_key:'spaniel_club',
+          association_event_type:'companion',
+          activity_key:cls.activityKey,
+          class_name:'Spaniel Club Companion - '+cls.activityLabel+' - '+cls.divisionLabel+' - '+classSize+' dogs',
+          placement:String(place),
+          animal_name:name,
           points:SS_CONFIG.placementPoints[place] || 0,
           score:null,
           max_score:null,
@@ -3177,7 +3287,8 @@ function updatePhase1UI() {
     } else if (isSpaniel) {
       select.innerHTML = [
         ['conformation','Spaniel Club Conformation'],
-        ['working','Working Class'],
+        ['working','Working Classes'],
+        ['companion','Companion Classes'],
         ['challenge','Challenge Class'],
         ['complete_challenge','Complete Spaniel Challenge']
       ].map(([value,label]) => '<option value="'+value+'">'+label+'</option>').join('');
