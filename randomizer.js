@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: SPANIEL CHALLENGE HEADER PARSER FIX 2 2026-09-17');
+console.log('SS RANDOMIZER BUILD: FELINE ATHLETES CLUB 2026-09-22');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
@@ -238,6 +238,7 @@ const SS_ENTRY_TITLE_CODES = [
   // Canine Good Citizen progression — longest first so exact title stripping is unambiguous.
   'CGCU','CGCA','CGCG','CGCS','CGCB','CGC',
   'FFA','VBC','VNC','TTC','TTD','ATC',
+  'ATHCH','MATH','ATHX','ATHA','ATHN','ATH',
   'CIHDM','IHDM','ENJ\\d*','ENN\\d*','ENO\\d*','GDM','GDI','GD3L','GDT','GYR',
   'NGH','WER','NTD','TTH','TAH','CDT','CD1L','WTP3','WTP4','S2',
   'DCPEC',
@@ -704,6 +705,35 @@ async function uploadShowRecords() {
 
     const finalRecords = keepBestRecords(uploadRecords);
 
+    // FAC SERIES SAFETY: load prior records from the same two-day series once.
+    // This enforces max two DIFFERENT sports per cat per series and prevents the
+    // same cat from earning/recording the same FAC sport twice in one series.
+    const facPriorSportsByAnimal = {};
+    if (uploadShowData.associationKey === 'feline_athletes_club' && cleanLine(uploadShowData.seriesName)) {
+      const { data: facUploads, error: facUploadsError } = await supabase
+        .from('show_uploads')
+        .select('id')
+        .eq('association_key', 'feline_athletes_club')
+        .eq('series_name', uploadShowData.seriesName);
+      if (facUploadsError) throw new Error('FAC series history load failed: ' + facUploadsError.message);
+      const facUploadIds = (facUploads || []).map(row => row.id).filter(Boolean);
+      if (facUploadIds.length) {
+        const { data: facRows, error: facRowsError } = await supabase
+          .from('show_records')
+          .select('animal_id,activity_key')
+          .in('upload_id', facUploadIds)
+          .eq('association_key', 'feline_athletes_club');
+        if (facRowsError) throw new Error('FAC prior sport load failed: ' + facRowsError.message);
+        (facRows || []).forEach(row => {
+          const id = String(row.animal_id || '');
+          const sport = String(row.activity_key || '');
+          if (!id || !sport) return;
+          if (!facPriorSportsByAnimal[id]) facPriorSportsByAnimal[id] = new Set();
+          facPriorSportsByAnimal[id].add(sport);
+        });
+      }
+    }
+
     let inserted = 0;
     let skipped = 0;
     let failed = 0;
@@ -755,6 +785,21 @@ async function uploadShowRecords() {
       }
 
       const animal = animalResult.animal;
+
+      if (uploadShowData.associationKey === 'feline_athletes_club') {
+        const priorSports = facPriorSportsByAnimal[String(animal.id)] || new Set();
+        const currentSport = String(r.activity_key || '');
+        if (priorSports.has(currentSport)) {
+          skipped++;
+          log += 'Skipped FAC duplicate sport in this series: ' + escapeHtml(animal.name) + ' — ' + escapeHtml(displayActivityNameForKey(currentSport)) + '.<br>';
+          continue;
+        }
+        if (priorSports.size >= 2) {
+          skipped++;
+          log += 'Skipped FAC third sport in this series: ' + escapeHtml(animal.name) + ' already has two FAC sports recorded for ' + escapeHtml(uploadShowData.seriesName) + '.<br>';
+          continue;
+        }
+      }
 
       // Registry species is authoritative.
       const registrySpecies =
@@ -946,6 +991,11 @@ async function uploadShowRecords() {
           '<br>';
       } else {
         inserted++;
+        if (uploadShowData.associationKey === 'feline_athletes_club') {
+          const id = String(animal.id);
+          if (!facPriorSportsByAnimal[id]) facPriorSportsByAnimal[id] = new Set();
+          if (r.activity_key) facPriorSportsByAnimal[id].add(String(r.activity_key));
+        }
       }
     }
 
@@ -2177,6 +2227,13 @@ const SS_SPECIALTY_SYSTEMS = [
     title_system: true
   },
   {
+    key: 'feline_athletes_club',
+    display_name: 'Feline Athletes Club',
+    species: 'cat',
+    active: true,
+    title_system: true
+  },
+  {
     key: 'testing_system_cat',
     display_name: 'Temperament / Therapy Testing',
     species: 'cat',
@@ -2498,6 +2555,11 @@ function relabelSpecialtyPanel(systemKey) {
       title:'Temperament / Therapy Testing',
       event:'Test Type',
       help:'Choose the test type, paste the entries, and run the test.'
+    },
+    feline_athletes_club: {
+      title:'Feline Athletes Club',
+      event:'ATHLETE Sport',
+      help:'Run one ATHLETE sport at a time. Cats compete at the level they are currently trying to earn; 1st-5th in a class of 6+ earns one FAC qualification and normal SS activity points.'
     },
     icelandic_horse_club: {
       title:'Icelandic Horse Club',
@@ -3322,7 +3384,10 @@ function updatePhase1UI() {
   const isSpaniel =
     activeRandomizerTab === 'specialty' &&
     selectedSpecialtySystem === 'spaniel_club';
-  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance || isHunting || isSpaniel;
+  const isFelineAthletes =
+    activeRandomizerTab === 'specialty' &&
+    selectedSpecialtySystem === 'feline_athletes_club';
+  const isSpecialtyRunner = isHerding || isTesting || isIcelandic || isEndurance || isHunting || isSpaniel || isFelineAthletes;
   const isChampionship =
     selectedChampionshipMode() === 'championship' &&
     activeRandomizerTab !== 'specialty';
@@ -3376,6 +3441,11 @@ function updatePhase1UI() {
       select.innerHTML = '<option value="field_test">Hunting Field Test</option>';
       ensureHuntingControls();
       renderHuntingControls();
+    } else if (isFelineAthletes) {
+      select.innerHTML = Object.entries(SS_FAC_SPORTS).map(([value,label]) =>
+        '<option value="' + value + '">' + label + '</option>'
+      ).join('');
+      if ([...select.options].some(option => option.value === current)) select.value = current;
     } else if (isSpaniel) {
       select.innerHTML = [
         ['conformation','Spaniel Club Conformation'],
@@ -5494,6 +5564,100 @@ async function runHuntingClub(rawData, showData) {
   return { lines, records };
 }
 
+const SS_FAC_SPORTS = {
+  feline_agility: 'Feline Agility',
+  timed_sprint: 'Timed Sprint',
+  high_jump: 'High Jump',
+  long_jump: 'Long Jump',
+  equilibrium: 'Equilibrium',
+  tower_climb: 'Tower Climb',
+  escape_cat: 'Escape Cat'
+};
+
+const SS_FAC_LEVELS = {
+  novice: { label:'Novice', title:'AthN', required:2 },
+  athlete: { label:'Athlete', title:'Ath', required:3 },
+  advanced: { label:'Advanced', title:'AthA', required:4 },
+  excellent: { label:'Excellent', title:'AthX', required:5 },
+  master: { label:'Master', title:'MAth', required:6 },
+  champion: { label:'Champion', title:'AthCh.', required:7 }
+};
+
+function normalizeFacLevel(value) {
+  const n = cleanLine(value).toLowerCase().replace(/^athlete\s+/, '');
+  if (n === 'advance') return 'advanced';
+  return Object.prototype.hasOwnProperty.call(SS_FAC_LEVELS, n) ? n : null;
+}
+
+function parseFelineAthletesClasses(rawData) {
+  const lines = String(rawData || '').replace(/\r\n?/g,'\n').split('\n').map(cleanLine);
+  const classes = [];
+  let current = null;
+  lines.forEach(line => {
+    if (!line) return;
+    const level = normalizeFacLevel(stripHeaderMarkup(line));
+    if (level) {
+      current = { level, entries: [] };
+      classes.push(current);
+      return;
+    }
+    if (current) current.entries.push(line);
+  });
+  return classes.filter(c => c.entries.length);
+}
+
+function runFelineAthletesClub(rawData, showData) {
+  if (cleanLine(showData.species).toLowerCase() !== 'cat') {
+    throw new Error('Feline Athletes Club events are for cats only.');
+  }
+  const sportKey = cleanLine(showData.associationEventType || showData.specialtyEventType);
+  const sportLabel = SS_FAC_SPORTS[sportKey];
+  if (!sportLabel) throw new Error('Please choose an ATHLETE sport.');
+
+  const classes = parseFelineAthletesClasses(rawData);
+  if (!classes.length) {
+    throw new Error('No FAC level classes found. Use headings Novice, Athlete, Advanced, Excellent, Master, or Champion followed by Animal Name - Owner entries.');
+  }
+
+  const lines = [bold('Feline Athletes Club — ' + sportLabel), ''];
+  const records = [];
+
+  classes.forEach((cls, classIndex) => {
+    const level = SS_FAC_LEVELS[cls.level];
+    const ranked = shuffle(cls.entries.slice());
+    const classSize = ranked.length;
+    if (classIndex) addLine(lines, '');
+    addLine(lines, bold(level.label));
+    addLine(lines, 'Class Size: ' + classSize + ' cats');
+    addLine(lines, classSize >= 6 ? 'FAC Qualification: 1st-5th' : 'FAC Qualification: none — minimum 6 cats required');
+    addLine(lines, '');
+
+    ranked.forEach((name,index) => {
+      const place = index + 1;
+      const qualified = classSize >= 6 && place <= 5;
+      const points = SS_CONFIG.placementPoints[place] || 0;
+      addLine(lines, placementLabel(place) + ' ' + name + (qualified ? ' — FAC Q' : ''));
+      records.push({
+        show_name: showData.showName,
+        show_type: 'activity',
+        show_scope: 'association',
+        association_key: 'feline_athletes_club',
+        association_event_type: sportKey,
+        activity_key: sportKey,
+        class_name: 'Feline Athletes Club - ' + sportLabel + ' - ' + level.label + ' - ' + classSize + ' cats',
+        placement: String(place),
+        animal_name: name,
+        points,
+        score: null,
+        max_score: null,
+        passed: qualified,
+        score_label: qualified ? 'FAC Qualification' : null
+      });
+    });
+  });
+  return { lines, records };
+}
+
 function tagAssociationRecords(result, associationKey, eventType) {
   const tagged = result || { lines: [], records: [] };
   (tagged.records || []).forEach(record => {
@@ -6203,9 +6367,11 @@ async function randomizeShow() {
             ? 'hunting_club'
             : specialtySystemKey === 'spaniel_club'
               ? 'spaniel_club'
-              : null,
+              : specialtySystemKey === 'feline_athletes_club'
+                ? 'feline_athletes_club'
+                : null,
     associationEventType:
-      ['icelandic_horse_club','endurance_club','hunting_club','spaniel_club'].includes(specialtySystemKey)
+      ['icelandic_horse_club','endurance_club','hunting_club','spaniel_club','feline_athletes_club'].includes(specialtySystemKey)
         ? specialtyEventValue
         : null
   };
@@ -6219,6 +6385,11 @@ async function randomizeShow() {
 
   if (!showData.species) {
     showMessage('error', 'Please select the show species.');
+    return;
+  }
+
+  if (specialtySystemKey === 'feline_athletes_club' && !cleanLine(showData.seriesName)) {
+    showMessage('error', 'Feline Athletes Club shows require a Series Name so the two-sport-per-series rule can be enforced across both days.');
     return;
   }
 
@@ -6256,6 +6427,8 @@ async function randomizeShow() {
       result = await runHuntingClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'spaniel_club') {
       result = await runSpanielClub(rawData, showData);
+    } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'feline_athletes_club') {
+      result = runFelineAthletesClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'herding_club') {
       result = runHerdingClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && /^testing_system_/.test(specialtySystemKey || '')) {
