@@ -3005,7 +3005,7 @@ function renderSpecialtySystemOptions() {
     event_kind: "rated",
     requires_endurance_title: true
   },
-       {
+  {
     key: "world_tour_arabian_nights",
     name: "Arabian Nights",
     circuit: "World Tour",
