@@ -2315,8 +2315,151 @@ function renderSpecialtySystemOptions() {
     $('showFormat').selectedIndex = 0;
   }
 }
-  const SS_ENDURANCE_RACES = Object.freeze({unrated:{label:'Unrated Stakes',grade:null,ranked:true,kind:'unrated',distanceMode:'manual',description:'Breed-based unrated stakes. Enter the race distance for this specific running.'},grade_iii:{label:'Grade III Stakes',grade:'III',ranked:true,kind:'graded',distanceKm:50},grade_ii:{label:'Grade II Stakes',grade:'II',ranked:true,kind:'graded',distanceKm:100},grade_i:{label:'Grade I Stakes',grade:'I',ranked:true,kind:'graded',distanceKm:160},sheikh_zayed:{label:'Sheikh Zayed Endurance Festival',grade:'I',ranked:true,kind:'hosted',distanceKm:160,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',series:'UAE Endurance Triple Crown',prizeMoney:{1:5000,2:3000,3:1000}},emirates_sands:{label:'Emirates Sands Endurance Festival',grade:'I',ranked:true,kind:'hosted',distanceKm:160,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',series:'UAE Endurance Triple Crown',prizeMoney:{1:5000,2:3000,3:1000}},uae_presidents_cup:{label:"UAE President's Cup",grade:'I',ranked:true,kind:'hosted',distanceKm:160,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',series:'UAE Endurance Triple Crown',prizeMoney:{1:5000,2:3000,3:1000}},desert_gold_cup:{label:'Desert Gold Cup',grade:'II',ranked:true,kind:'hosted',distanceKm:100,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:2500,2:1500,3:500}},al_wathba_challenge:{label:'Al Wathba Challenge',grade:'II',ranked:true,kind:'hosted',distanceKm:100,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:2500,2:1500,3:500}},dubai_desert_classic:{label:'Dubai Desert Classic',grade:'II',ranked:true,kind:'hosted',distanceKm:100,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:2500,2:1500,3:500}},yamamah_endurance_cup:{label:'Yamamah Endurance Cup',grade:'II',ranked:true,kind:'hosted',distanceKm:100,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:2500,2:1500,3:500}},dubai_crown_prince_ladies:{label:'Dubai Crown Prince Ride for Ladies',grade:'II',ranked:true,kind:'hosted',distanceKm:100,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:2500,2:1500,3:500}},emirates_heritage:{label:'Emirates Heritage Endurance Ride',grade:'III',ranked:true,kind:'hosted',distanceKm:50,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:1000,2:500,3:250}},al_ain_oasis:{label:'Al Ain Oasis Ride',grade:'III',ranked:true,kind:'hosted',distanceKm:50,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:1000,2:500,3:250}},al_maktoum:{label:'Al Maktoum Endurance Challenge',grade:'III',ranked:true,kind:'hosted',distanceKm:50,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:1000,2:500,3:250}},desert_rose:{label:'Desert Rose Endurance Ride',grade:'III',ranked:true,kind:'hosted',distanceKm:50,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:1000,2:500,3:250}},al_forsan:{label:'Al Forsan International Endurance Ride',grade:'III',ranked:true,kind:'hosted',distanceKm:50,host:'UAE Endurance Conference',conference:'UAE Endurance Conference',prizeMoney:{1:1000,2:500,3:250}},prospect:{label:'Prospect Show',grade:null,ranked:false,kind:'prospect',distanceKm:0},club_amazing_race:{label:'Endurance Club Amazing Race',grade:null,ranked:true,kind:'amazing',distanceMode:'manual',description:'Long-distance multi-stage club race. Enter the total distance for this running.'}});
+ const SS_ENDURANCE_RACES = [
+  {
+    key: "northern_circuit_polar_trek",
+    name: "Polar Trek",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "III",
+    conference: "Host Dependent",
+    distance_km: 850,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "northern_circuit_highland_challenge",
+    name: "Highland Challenge",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 155,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "northern_circuit_viking_cup",
+    name: "Viking Cup",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 165,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "northern_circuit_fjord_expedition",
+    name: "Fjord Expedition",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "northern_circuit_siberian_plate",
+    name: "Siberian Plate",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "I",
+    conference: "Eastern",
+    distance_km: 1500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "northern_circuit_baltic_challenge",
+    name: "Baltic Challenge",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 350,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "northern_circuit_celtic_crossing",
+    name: "Celtic Crossing",
+    circuit: "Northern Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 400,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
 
+  {
+    key: "desert_circuit_saudi_cup",
+    name: "Saudi Cup",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 550,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "desert_circuit_marathon_des_sables",
+    name: "Marathon des Sables",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 260,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "desert_circuit_atlas_challenge",
+    name: "Atlas Challenge",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 750,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "desert_circuit_nile_expedition",
+    name: "Nile Expedition",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 850,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "desert_circuit_dubai_crown_prince_conference",
+    name: "Dubai Crown Prince Conference",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 150,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "desert_circuit_karakum_crossing",
+    name: "Karakum Crossing",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 650,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
 const SS_PHASE1_FORMATS = {
   conformation: [
     ['conformation', 'All Breed Shows'],
