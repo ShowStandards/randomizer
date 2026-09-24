@@ -2460,6 +2460,641 @@ function renderSpecialtySystemOptions() {
     event_kind: "rated",
     requires_endurance_title: true
   },
+     {
+    key: "desert_circuit_wadi_rum_challenge",
+    name: "Wadi Rum Challenge",
+    circuit: "Desert Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "steppe_circuit_mongol_derby",
+    name: "Mongol Derby",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "steppe_circuit_turkmen_s_plate",
+    name: "Turkmen’s Plate",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 250,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "steppe_circuit_silk_road_classic",
+    name: "Silk Road Classic",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 700,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "steppe_circuit_eurasia_challenge",
+    name: "Eurasia Challenge",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "I",
+    conference: "Both",
+    distance_km: 4000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "steppe_circuit_dragon_trail",
+    name: "Dragon Trail",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 900,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "steppe_circuit_altai_eagle_ride",
+    name: "Altai Eagle Ride",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 900,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "steppe_circuit_kazakh_eagle_cup",
+    name: "Kazakh Eagle Cup",
+    circuit: "Steppe Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 800,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "north_american_frontier_circuit_new_year_s_cup",
+    name: "New Year’s Cup",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 300,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "north_american_frontier_circuit_tevis_cup",
+    name: "Tevis Cup",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 100,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "north_american_frontier_circuit_continental_divide",
+    name: "Continental Divide",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "I",
+    conference: "Western",
+    distance_km: 5000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "north_american_frontier_circuit_yukon_gold_rush",
+    name: "Yukon Gold Rush",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 950,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "north_american_frontier_circuit_route_66_classic",
+    name: "Route 66 Classic",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "north_american_frontier_circuit_maya_mountain_challenge",
+    name: "Maya Mountain Challenge",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 450,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "north_american_frontier_circuit_volc_n_trail_classic",
+    name: "Volcán Trail Classic",
+    circuit: "North American Frontier Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 600,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "south_american_circuit_gaucho_derby",
+    name: "Gaucho Derby",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "south_american_circuit_pampas_classic",
+    name: "Pampas Classic",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 450,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+     {
+    key: "south_american_circuit_andes_crossing",
+    name: "Andes Crossing",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "I",
+    conference: "Western",
+    distance_km: 1200,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "south_american_circuit_patagonia_challenge",
+    name: "Patagonia Challenge",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 700,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "south_american_circuit_atacama_crossing",
+    name: "Atacama Crossing",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 800,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "south_american_circuit_amazon_trail",
+    name: "Amazon Trail",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 600,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "south_american_circuit_andean_highlands",
+    name: "Andean Highlands",
+    circuit: "South American Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 400,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "european_classic_circuit_florac",
+    name: "Florac",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "european_classic_circuit_euston_park",
+    name: "Euston Park",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 120,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "european_classic_circuit_toscana_endurance_lifestyle",
+    name: "Toscana Endurance Lifestyle",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "european_classic_circuit_castelsagrat",
+    name: "Castelsagrat",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 120,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "european_classic_circuit_montcuq",
+    name: "Montcuq",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 200,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "european_classic_circuit_al_andalus",
+    name: "Al-Andalus",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "european_classic_circuit_transylvania_challenge",
+    name: "Transylvania Challenge",
+    circuit: "European Classic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 600,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "oceanic_circuit_tom_quilty_gold_cup",
+    name: "Tom Quilty Gold Cup",
+    circuit: "Oceanic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "oceanic_circuit_australian_outback_challenge",
+    name: "Australian Outback Challenge",
+    circuit: "Oceanic Circuit",
+    series: null,
+    grade: "I",
+    conference: "Eastern",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "oceanic_circuit_great_dividing_range",
+    name: "Great Dividing Range",
+    circuit: "Oceanic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 750,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "oceanic_circuit_southern_cross",
+    name: "Southern Cross",
+    circuit: "Oceanic Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 400,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "oceanic_circuit_kiwi_endurance_classic",
+    name: "Kiwi Endurance Classic",
+    circuit: "Oceanic Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "oceanic_circuit_snowy_mountains_challenge",
+    name: "Snowy Mountains Challenge",
+    circuit: "Oceanic Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+     {
+    key: "asian_circuit_gobi_desert_cup",
+    name: "Gobi Desert Cup",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 480,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "asian_circuit_himalayan_challenge",
+    name: "Himalayan Challenge",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "asian_circuit_taklamakan_crossing",
+    name: "Taklamakan Crossing",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "I",
+    conference: "Eastern",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "asian_circuit_great_wall_challenge",
+    name: "Great Wall Challenge",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 350,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "asian_circuit_fuji_endurance",
+    name: "Fuji Endurance",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "asian_circuit_jeju_challenge",
+    name: "Jeju Challenge",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 200,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "asian_circuit_manipur_endurance_classic",
+    name: "Manipur Endurance Classic",
+    circuit: "Asian Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "african_circuit_namib_desert_challenge",
+    name: "Namib Desert Challenge",
+    circuit: "African Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "african_circuit_kalahari_crossing",
+    name: "Kalahari Crossing",
+    circuit: "African Circuit",
+    series: null,
+    grade: "II",
+    conference: "Western",
+    distance_km: 750,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "african_circuit_serengeti_endurance",
+    name: "Serengeti Endurance",
+    circuit: "African Circuit",
+    series: null,
+    grade: "III",
+    conference: "Eastern",
+    distance_km: 400,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "african_circuit_sahara_crossing",
+    name: "Sahara Crossing",
+    circuit: "African Circuit",
+    series: null,
+    grade: "I",
+    conference: "Both",
+    distance_km: 1500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "african_circuit_cape_endurance_classic",
+    name: "Cape Endurance Classic",
+    circuit: "African Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "african_circuit_rift_valley_challenge",
+    name: "Rift Valley Challenge",
+    circuit: "African Circuit",
+    series: null,
+    grade: "II",
+    conference: "Eastern",
+    distance_km: 600,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "african_circuit_atlas_endurance_classic",
+    name: "Atlas Endurance Classic",
+    circuit: "African Circuit",
+    series: null,
+    grade: "III",
+    conference: "Western",
+    distance_km: 250,
+    event_kind: "rated",
+    requires_endurance_title: true
+  }
+     {
+    key: "world_tour_arabian_nights",
+    name: "Arabian Nights",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Eastern",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "world_tour_silk_road",
+    name: "Silk Road",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Eastern",
+    distance_km: 1500,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "world_tour_sahara",
+    name: "Sahara",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Both",
+    distance_km: 1200,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "world_tour_andes",
+    name: "Andes",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Western",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "world_tour_outback",
+    name: "Outback",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Eastern",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "world_tour_arctic",
+    name: "Arctic",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Both",
+    distance_km: 1000,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+  {
+    key: "world_tour_grand_finale",
+    name: "World Tour Grand Finale",
+    circuit: "World Tour",
+    series: "World Tour",
+    grade: "I",
+    conference: "Both",
+    distance_km: 1600,
+    event_kind: "rated",
+    requires_endurance_title: true
+  },
+
+  {
+    key: "invitational_endurance_championship",
+    name: "Endurance Championship Invitational",
+    circuit: "Invitational",
+    series: "Invitational",
+    grade: "I",
+    conference: "Both",
+    distance_km: 160,
+    event_kind: "rated",
+    requires_endurance_title: true
+  }
+ ];
 const SS_PHASE1_FORMATS = {
   conformation: [
     ['conformation', 'All Breed Shows'],
