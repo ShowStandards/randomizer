@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-console.log('SS RANDOMIZER BUILD: FELINE ATHLETES CLUB 2026-09-22');
+console.log('SS RANDOMIZER BUILD: ENDURANCE CATALOG SYNC 2026-09-25');
 
 // Show Standard Randomizer — Development Phase 1
 // Standard conformation, activities, association systems, CGC progression, and Championship mode.
