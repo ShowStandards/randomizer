@@ -5855,7 +5855,17 @@ async function checkEnduranceRaceEligibility(rawData,race){
   if(!supabase) throw new Error('Supabase is not ready.');
 
   const animalMap=await loadAnimalsMap(supabase);
-  const entries=herdingEntryLines(rawData);
+
+  // Rated Endurance entry boxes are already scoped to one selected race, so
+  // every non-empty physical line is an entry. Do not require the generic
+  // "Animal - Owner" format here: Entry Builder output can legitimately be a
+  // decorated registered name with no owner suffix.
+  const entries=String(rawData || '')
+    .split(/\r?\n/)
+    .map(cleanLine)
+    .filter(Boolean)
+    .filter(line => !isBracketHeaderLine(line));
+
   const accepted=[],declined=[];
 
   for(const rawEntry of entries){
