@@ -2159,6 +2159,14 @@ const SS_HUNTING_FIELD_TESTS = {
     },
     categories: ['Tolling / Search Pattern','Quarry Attraction','Steadiness','Retrieve / Delivery','Handler Cooperation']
   },
+  otter_hunting: {
+    label: 'Otter Hunting',
+    code: 'Ot',
+    specializations: {
+      otter: { label:'Otter', code:'o' }
+    },
+    categories: ['Scent & Trail Work','Waterway Search','Quarry Location & Indication','Persistence & Working Drive','Handler Cooperation']
+  },
   puffin_hunting: {
     label: 'Puffin Hunting',
     code: 'Pu',
@@ -5393,6 +5401,7 @@ function huntingDqReason(familyKey, levelKey) {
     pack_hunting: ['Unsafe pack interference / loss of pack control'],
     catch_dogs: ['Unsafe catch / failed controlled release'],
     tolling: ['Failed to engage or sustain the tolling sequence'],
+    otter_hunting: ['Failed to follow the waterway scent trail or safely indicate the quarry'],
     puffin_hunting: ['Failed the den / crevice search or controlled retrieval']
   }[familyKey] || [];
 
