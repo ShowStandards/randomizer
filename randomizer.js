@@ -5690,7 +5690,24 @@ function parseFelineAthletesClasses(rawData, fallbackSport) {
     if (current.entries.includes(line)) throw new Error('Duplicate cat in ' + SS_FAC_SPORTS[current.sport] + ' - ' + current.code + ': ' + line);
     current.entries.push(line);
   });
-  return classes.filter(c => c.entries.length);
+  // Multiple owners may submit the same sport/class heading. Merge every
+  // matching division before shuffling, awarding places, or qualifications.
+  const merged = new Map();
+  for (const cls of classes) {
+    if (!cls.entries.length) continue;
+    const key = cls.sport + '|' + normalizeCode(cls.code);
+    if (!merged.has(key)) merged.set(key, { ...cls, entries: [], entryNames: new Set() });
+    const target = merged.get(key);
+    for (const entry of cls.entries) {
+      const entryKey = entry.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (target.entryNames.has(entryKey)) {
+        throw new Error('Duplicate cat in ' + SS_FAC_SPORTS[cls.sport] + ' - ' + cls.code + ': ' + entry);
+      }
+      target.entryNames.add(entryKey);
+      target.entries.push(entry);
+    }
+  }
+  return Array.from(merged.values()).map(({entryNames, ...cls}) => cls);
 }
 
 function runFelineAthletesClub(rawData, showData) {
