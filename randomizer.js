@@ -6435,11 +6435,6 @@ async function randomizeShow() {
     return;
   }
 
-  if (specialtySystemKey === 'feline_athletes_club' && !cleanLine(showData.seriesName)) {
-    showMessage('error', 'Feline Athletes Club shows require a Series Name so the two-sport-per-series rule can be enforced across both days.');
-    return;
-  }
-
   if (activeRandomizerTab === 'specialty') {
     const systemKey = $('showFormat') ? $('showFormat').value : '';
     const system = SS_SPECIALTY_SYSTEMS.find(item => item.key === systemKey);
