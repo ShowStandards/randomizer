@@ -5636,19 +5636,59 @@ function normalizeFacLevel(value) {
   return Object.prototype.hasOwnProperty.call(SS_FAC_LEVELS, n) ? n : null;
 }
 
-function parseFelineAthletesClasses(rawData) {
-  const lines = String(rawData || '').replace(/\r\n?/g,'\n').split('\n').map(cleanLine);
+const SS_FAC_ENTRY_CODES = {
+  cab:'Feline Agility', caai:'Feline Agility', caaii:'Feline Agility',
+  cach:'Feline Agility', cagch:'Feline Agility',
+  fsp:'Timed Sprint', hjn:'High Jump', hji:'High Jump', hja:'High Jump',
+  hjx:'High Jump', hjch:'High Jump', flj:'Long Jump',
+  feq:'Equilibrium', fcl:'Tower Climb', fea:'Escape Cat'
+};
+const SS_FAC_TITLE_CODES = {
+  athn:'novice', ath:'athlete', atha:'advanced',
+  athx:'excellent', math:'master', athch:'champion'
+};
+
+function parseFelineAthletesClasses(rawData, fallbackSport) {
+  const rows = String(rawData || '').replace(/\r\n?/g,'\n').split('\n').map(cleanLine);
   const classes = [];
   let current = null;
-  lines.forEach(line => {
+  const sportByName = Object.fromEntries(
+    Object.entries(SS_FAC_SPORTS).map(([key,label]) => [label.toLowerCase(),key])
+  );
+  const normalizeCode = value => cleanLine(value).toLowerCase().replace(/\.$/,'').replace(/\s+/g,'');
+  rows.forEach((line, index) => {
     if (!line) return;
-    const level = normalizeFacLevel(stripHeaderMarkup(line));
-    if (level) {
-      current = { level, entries: [] };
+    const header = stripHeaderMarkup(line);
+    const match = header.match(/^(.+?)\s*[-–—]\s*([A-Za-z0-9.]+)$/);
+    let sport = null;
+    let code = null;
+    if (match) {
+      sport = sportByName[cleanLine(match[1]).toLowerCase()] || null;
+      code = normalizeCode(match[2]);
+      if (sport && !(code in SS_FAC_ENTRY_CODES) && !(code in SS_FAC_TITLE_CODES)) {
+        throw new Error('Unknown Feline Athletics class code "' + match[2] + '" on line ' + (index+1));
+      }
+    }
+    const legacyLevel = normalizeFacLevel(header);
+    if (sport && code) {
+      current = {
+        sport, code:match[2].trim(),
+        level:SS_FAC_TITLE_CODES[code] || 'novice',
+        legacy:!(code in SS_FAC_TITLE_CODES),
+        entries:[]
+      };
       classes.push(current);
       return;
     }
-    if (current) current.entries.push(line);
+    if (legacyLevel) {
+      current = {sport:fallbackSport,code:SS_FAC_LEVELS[legacyLevel].label,level:legacyLevel,legacy:false,entries:[]};
+      classes.push(current);
+      return;
+    }
+    if (!current) throw new Error('Expected a sport/class heading before entries (line ' + (index+1) + ').');
+    if (!/\s+-\s+[^-]+$/.test(line)) throw new Error('Invalid cat entry on line ' + (index+1) + ': ' + line);
+    if (current.entries.includes(line)) throw new Error('Duplicate cat in ' + SS_FAC_SPORTS[current.sport] + ' - ' + current.code + ': ' + line);
+    current.entries.push(line);
   });
   return classes.filter(c => c.entries.length);
 }
@@ -5657,52 +5697,43 @@ function runFelineAthletesClub(rawData, showData) {
   if (cleanLine(showData.species).toLowerCase() !== 'cat') {
     throw new Error('Feline Athletes Club events are for cats only.');
   }
-  const sportKey = cleanLine(showData.associationEventType || showData.specialtyEventType);
-  const sportLabel = SS_FAC_SPORTS[sportKey];
-  if (!sportLabel) throw new Error('Please choose an ATHLETE sport.');
+  const fallbackSport = cleanLine(showData.associationEventType || showData.specialtyEventType);
+  const classes = parseFelineAthletesClasses(rawData, fallbackSport);
+  if (!classes.length) throw new Error('No Feline Athletics classes found. Use headings such as "Timed Sprint - FSp" or "Feline Agility - CAB" followed by Cat Name - Owner entries.');
 
-  const classes = parseFelineAthletesClasses(rawData);
-  if (!classes.length) {
-    throw new Error('No FAC level classes found. Use headings Novice, Athlete, Advanced, Excellent, Master, or Champion followed by Animal Name - Owner entries.');
-  }
-
-  const lines = [bold('Feline Athletes Club — ' + sportLabel), ''];
+  const lines = [bold('Feline Athletes Club'), ''];
   const records = [];
-
-  classes.forEach((cls, classIndex) => {
+  const seen = new Set();
+  classes.forEach((cls,index) => {
+    const sportLabel = SS_FAC_SPORTS[cls.sport];
+    if (!sportLabel) throw new Error('Unknown Feline Athletics sport: ' + cls.sport);
     const level = SS_FAC_LEVELS[cls.level];
     const ranked = shuffle(cls.entries.slice());
     const classSize = ranked.length;
-    if (classIndex) addLine(lines, '');
-    addLine(lines, bold(level.label));
-    addLine(lines, 'Class Size: ' + classSize + ' cats');
-    addLine(lines, classSize >= 6 ? 'FAC Qualification: 1st-5th' : 'FAC Qualification: none — minimum 6 cats required');
-    addLine(lines, '');
-
-    ranked.forEach((name,index) => {
-      const place = index + 1;
+    if (index) addLine(lines,'');
+    addLine(lines,bold(sportLabel + ' - ' + cls.code));
+    addLine(lines,'Class Size: ' + classSize + ' cats');
+    addLine(lines,classSize >= 6 ? 'FAC Qualification: 1st-5th' : 'FAC Qualification: none — minimum 6 cats required');
+    addLine(lines,'');
+    ranked.forEach((name,placeIndex) => {
+      const duplicateKey = cls.sport + '|' + cls.code.toLowerCase() + '|' + name.toLowerCase();
+      if (seen.has(duplicateKey)) throw new Error('Duplicate entry across ' + sportLabel + ' - ' + cls.code + ': ' + name);
+      seen.add(duplicateKey);
+      const place = placeIndex + 1;
       const qualified = classSize >= 6 && place <= 5;
       const points = SS_CONFIG.placementPoints[place] || 0;
-      addLine(lines, placementLabel(place) + ' ' + name + (qualified ? ' — FAC Q' : ''));
+      addLine(lines,placementLabel(place) + ' ' + name + (qualified ? ' — FAC Q' : ''));
       records.push({
-        show_name: showData.showName,
-        show_type: 'activity',
-        show_scope: 'association',
-        association_key: 'feline_athletes_club',
-        association_event_type: sportKey,
-        activity_key: sportKey,
-        class_name: 'Feline Athletes Club - ' + sportLabel + ' - ' + level.label + ' - ' + classSize + ' cats',
-        placement: String(place),
-        animal_name: name,
-        points,
-        score: null,
-        max_score: null,
-        passed: qualified,
-        score_label: qualified ? 'FAC Qualification' : null
+        show_name:showData.showName, show_type:'activity', show_scope:'association',
+        association_key:'feline_athletes_club',association_event_type:cls.sport,
+        activity_key:cls.sport,
+        class_name:'Feline Athletes Club - ' + sportLabel + ' - ' + cls.code + ' - ' + classSize + ' cats',
+        placement:String(place),animal_name:name,points,score:null,max_score:null,
+        passed:qualified,score_label:qualified ? 'FAC Qualification' : null
       });
     });
   });
-  return { lines, records };
+  return {lines,records};
 }
 
 function tagAssociationRecords(result, associationKey, eventType) {
