@@ -5656,6 +5656,7 @@ const SS_FAC_TITLE_CODES = {
   athn:'novice', ath:'athlete', atha:'advanced',
   athx:'excellent', math:'master', athch:'champion'
 };
+const SS_FAC_SPECIALS_CODE = 'specials';
 
 function parseFelineAthletesClasses(rawData, fallbackSport) {
   const rows = String(rawData || '').replace(/\r\n?/g,'\n').split('\n').map(cleanLine);
@@ -5674,7 +5675,7 @@ function parseFelineAthletesClasses(rawData, fallbackSport) {
     if (match) {
       sport = sportByName[cleanLine(match[1]).toLowerCase()] || null;
       code = normalizeCode(match[2]);
-      if (sport && !(code in SS_FAC_ENTRY_CODES) && !(code in SS_FAC_TITLE_CODES)) {
+      if (sport && code !== SS_FAC_SPECIALS_CODE && !(code in SS_FAC_ENTRY_CODES) && !(code in SS_FAC_TITLE_CODES)) {
         throw new Error('Unknown Feline Athletics class code "' + match[2] + '" on line ' + (index+1));
       }
     }
@@ -5683,7 +5684,7 @@ function parseFelineAthletesClasses(rawData, fallbackSport) {
       current = {
         sport, code:match[2].trim(),
         level:SS_FAC_TITLE_CODES[code] || 'novice',
-        legacy:!(code in SS_FAC_TITLE_CODES),
+        legacy:!(code in SS_FAC_TITLE_CODES) && code !== SS_FAC_SPECIALS_CODE,
         entries:[]
       };
       classes.push(current);
@@ -5736,17 +5737,18 @@ function runFelineAthletesClub(rawData, showData) {
     const level = SS_FAC_LEVELS[cls.level];
     const ranked = shuffle(cls.entries.slice());
     const classSize = ranked.length;
+    const isSpecials = cls.code.toLowerCase() === SS_FAC_SPECIALS_CODE;
     if (index) addLine(lines,'');
     addLine(lines,bold(sportLabel + ' - ' + cls.code));
     addLine(lines,'Class Size: ' + classSize + ' cats');
-    addLine(lines,classSize >= 6 ? 'FAC Qualification: 1st-5th' : 'FAC Qualification: none — minimum 6 cats required');
+    addLine(lines,isSpecials ? 'FAC Qualification: none — Specials class' : (classSize >= 6 ? 'FAC Qualification: 1st-5th' : 'FAC Qualification: none — minimum 6 cats required'));
     addLine(lines,'');
     ranked.forEach((name,placeIndex) => {
       const duplicateKey = cls.sport + '|' + cls.code.toLowerCase() + '|' + name.toLowerCase();
       if (seen.has(duplicateKey)) throw new Error('Duplicate entry across ' + sportLabel + ' - ' + cls.code + ': ' + name);
       seen.add(duplicateKey);
       const place = placeIndex + 1;
-      const qualified = classSize >= 6 && place <= 5;
+      const qualified = !isSpecials && classSize >= 6 && place <= 5;
       const points = SS_CONFIG.placementPoints[place] || 0;
       addLine(lines,placementLabel(place) + ' ' + name + (qualified ? ' — FAC Q' : ''));
       records.push({
