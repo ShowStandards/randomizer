@@ -6145,7 +6145,7 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
     if (eventType === 'temperament') {
       const attempted = records.some(record =>
         cleanLine(record.activity_key).toLowerCase() === 'temperament_test' ||
-        /\\btemperament\\s+test(?:ing)?\\b/i.test(cleanLine(record.class))
+        /\btemperament\s+test(?:ing)?\b/i.test(cleanLine(record.class))
       );
       if (attempted) {
         declined.push({entry:item.rawEntry,reason:'Temperament Test may only be attempted once'});
