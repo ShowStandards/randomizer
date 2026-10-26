@@ -6123,7 +6123,9 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
     idValueByKey.set(key, item.animal.id);
   });
   const ids = [...idValueByKey.values()];
-  const batchSize = 200;
+  // Keep temperament history batches small: large entry lists can otherwise
+  // truncate the result set and silently miss an earlier attempt.
+  const batchSize = eventType === 'temperament' ? 10 : 200;
 
   for (let i = 0; i < ids.length; i += batchSize) {
     const batch = ids.slice(i, i + batchSize);
