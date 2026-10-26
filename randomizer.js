@@ -6127,9 +6127,15 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
 
   for (let i = 0; i < ids.length; i += batchSize) {
     const batch = ids.slice(i, i + batchSize);
-    const {data:prior,error} = await supabase.from('show_records')
+    let priorQuery = supabase.from('show_records')
       .select('id,animal_id,class,activity_key,passed,score,score_label,event_date')
       .in('animal_id', batch);
+    // A busy show animal can have hundreds of records. Supabase limits result
+    // rows, so fetch only temperament attempts when checking this one-time test.
+    if (eventType === 'temperament') {
+      priorQuery = priorQuery.or('activity_key.eq.temperament_test,class.ilike.*temperament*');
+    }
+    const {data:prior,error} = await priorQuery;
     if (error) throw new Error('Testing eligibility load failed: ' + error.message);
 
     (prior || []).forEach(record => {
