@@ -6151,7 +6151,15 @@ async function loadTestingEligibilityContext(rawData, showData, eventType) {
     const records = priorByAnimal.get(String(item.animal.id)) || [];
 
     if (eventType === 'temperament') {
-      const attempted = records.some(record =>
+      // Displayed earned title is an additional safeguard for bulk entries.
+      // Never retest a dog already carrying the species' temperament title,
+      // even when a bulk history lookup omits its older show record.
+      const temperamentTitle = cleanLine(item.animal.species).toLowerCase() === 'dog'
+        ? 'TTD'
+        : cleanLine(item.animal.species).toLowerCase() === 'cat' ? 'TTC' : 'TTH';
+      const hasEarnedTitle = new RegExp('(?:^|\\\\s)' + temperamentTitle + '(?=\\\\s|$)', 'i')
+        .test(cleanLine(item.rawEntry).split(/\\s+-\\s+/)[0]);
+      const attempted = hasEarnedTitle || records.some(record =>
         cleanLine(record.activity_key).toLowerCase() === 'temperament_test' ||
         /\btemperament\s+test(?:ing)?\b/i.test(cleanLine(record.class))
       );
