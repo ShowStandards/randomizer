@@ -5650,7 +5650,7 @@ const SS_FAC_ENTRY_CODES = {
   cach:'Feline Agility', cagch:'Feline Agility',
   fsp:'Timed Sprint', hjn:'High Jump', hji:'High Jump', hja:'High Jump',
   hjx:'High Jump', hjch:'High Jump', flj:'Long Jump',
-  feq:'Equilibrium', fcl:'Tower Climb', fea:'Escape Cat'
+  feq:'Equilibrium', afeq:'Equilibrium', fcl:'Tower Climb', fea:'Escape Cat'
 };
 const SS_FAC_TITLE_CODES = {
   athn:'novice', ath:'athlete', atha:'advanced',
