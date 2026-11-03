@@ -5536,6 +5536,10 @@ function parseHuntingBatch(rawData) {
 async function runHuntingClubBatch(rawData, showData) {
   const groups = parseHuntingBatch(rawData);
   const lines = [], records = [];
+  // Share registry and title lookups across every class in this batch.
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not ready.');
+  const shared = { animalMap: await loadAnimalsMap(supabase), priorCache: new Map() };
   let previousFamily = null;
   for (const group of groups) {
     const family = SS_HUNTING_FIELD_TESTS[group.familyKey];
@@ -5551,7 +5555,7 @@ async function runHuntingClubBatch(rawData, showData) {
     }
     const specialization = family.specializations[group.specializationKey];
     const level = SS_HUNTING_LEVELS[group.levelKey];
-    const result = await runHuntingClub(group.entries.join('\n'), showData, group);
+    const result = await runHuntingClub(group.entries.join('\n'), showData, group, shared);
     // Prominent per-class banner: every level + quarry gets its own section.
     // Preserve all judged scores, qualification rules and database records.
     addLine(lines, '----------------------------------------');
@@ -5566,7 +5570,7 @@ async function runHuntingClubBatch(rawData, showData) {
   return {lines, records};
 }
 
-async function runHuntingClub(rawData, showData, classOverride = null) {
+async function runHuntingClub(rawData, showData, classOverride = null, shared = null) {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not ready.');
 
@@ -5582,7 +5586,7 @@ async function runHuntingClub(rawData, showData, classOverride = null) {
     throw new Error('Choose a Hunting Field Test family, specialization, and level.');
   }
 
-  const animalMap = await loadAnimalsMap(supabase);
+  const animalMap = shared?.animalMap || await loadAnimalsMap(supabase);
   const entries = herdingEntryLines(rawData);
 
   if (!entries.length) throw new Error('No Hunting Field Test entries found.');
@@ -5660,9 +5664,20 @@ async function runHuntingClub(rawData, showData, classOverride = null) {
         }
       }
 
-      const prior = await huntingPriorQualifications(
-        supabase, animal.id, familyKey, specializationKey
-      );
+      // Beginners have no prerequisite: avoid unnecessary database requests.
+      // Repeated animals across classes reuse the same lookup in batch mode.
+      let prior = { beginners: 0, expert: 0, masters: 0 };
+      if (levelKey !== 'beginners') {
+        const cacheKey = [animal.id, familyKey, specializationKey].join('|');
+        if (shared?.priorCache?.has(cacheKey)) {
+          prior = shared.priorCache.get(cacheKey);
+        } else {
+          prior = await huntingPriorQualifications(
+            supabase, animal.id, familyKey, specializationKey
+          );
+          shared?.priorCache?.set(cacheKey, prior);
+        }
+      }
 
       if (levelKey === 'expert' && prior.beginners < SS_HUNTING_LEVELS.beginners.titleQs) {
         declined.push({
