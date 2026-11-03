@@ -5420,8 +5420,18 @@ async function huntingPriorQualifications(supabase, animalId, family, specializa
   const normalizeHuntingKey = value => String(value || '').toLowerCase()
     .replace(/&amp;/g, '&').replace(/[^a-z0-9]/g, '');
 
+  // Historical uploader labels that differ from the current internal keys.
+  const canonicalFamily = value => {
+    const key = normalizeHuntingKey(value);
+    const aliases = {
+      scenttrailing: 'trailing',
+      versatilehunting: 'versatile'
+    };
+    return aliases[key] || key;
+  };
+
   const counts = { beginners:0, expert:0, masters:0 };
-  const familyKey = normalizeHuntingKey(family);
+  const familyKey = canonicalFamily(family);
   const specializationKey = normalizeHuntingKey(specialization);
   const pageSize = 1000;
 
@@ -5438,7 +5448,7 @@ async function huntingPriorQualifications(supabase, animalId, family, specializa
     const rows = data || [];
     rows.forEach(record => {
       if (record.passed !== true ||
-          normalizeHuntingKey(record.hunting_family) !== familyKey ||
+          canonicalFamily(record.hunting_family) !== familyKey ||
           normalizeHuntingKey(record.hunting_specialization) !== specializationKey) return;
       const level = normalizeHuntingKey(record.hunting_level);
       if (counts[level] !== undefined) counts[level]++;
