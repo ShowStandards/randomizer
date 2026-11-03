@@ -5438,49 +5438,73 @@ async function huntingPriorQualifications(supabase, animalId, family, specializa
 // Both "Beginners - Flushing - Pheasant" and "Flushing - Pheasant - Beginners" work.
 // The same judge and upload path as single-class mode is reused for every class.
 function parseHuntingBatch(rawData) {
-  const groups = [];
-  let current = null;
-  const invalid = [];
-  const levels = Object.entries(SS_HUNTING_LEVELS);
-  const families = Object.entries(SS_HUNTING_FIELD_TESTS);
+  const groups = [], invalid = [];
+  let current = null, familyKey = null;
   const normalize = value => cleanLine(value).toLowerCase()
     .replace(/&amp;/g, '&').replace(/[^a-z0-9]+/g, '');
-  const matchLabel = (value, key, label) =>
-    normalize(value) === normalize(key) || normalize(value) === normalize(label);
-  const parseHeader = raw => {
-    const value = stripHeaderMarkup(raw).replace(/^field\s*(?:trial|test)\s*[:\-–—]\s*/i, '');
-    const parts = value.split(/\s+[-–—]\s+/).map(x => x.trim()).filter(Boolean);
-    if (parts.length !== 3) return null;
-    const levelPart = parts.find(p => levels.some(([key, l]) => matchLabel(p, key, l.label)));
-    if (!levelPart) return null;
-    const levelKey = levels.find(([key,l]) => matchLabel(levelPart,key,l.label))[0];
-    const others = parts.filter(p => p !== levelPart);
-    const familyItem = families.find(([key,f]) => others.some(p => matchLabel(p,key,f.label)));
-    if (!familyItem) return null;
-    const [familyKey, family] = familyItem;
-    const specializationPart = others.find(p => !matchLabel(p,familyKey,family.label));
-    const specializationItem = Object.entries(family.specializations)
-      .find(([key,sp]) => matchLabel(specializationPart,key,sp.label));
-    if (!specializationItem) return null;
-    return {levelKey, familyKey, specializationKey:specializationItem[0]};
+  const aliases = {
+    'scentingtrailing':'trailing', 'scenttrailing':'trailing',
+    'catchdog':'catch_dogs', 'catchdogs':'catch_dogs',
+    'treeingbaying':'treeing_baying', 'packhunting':'pack_hunting',
+    'otterhunting':'otter_hunting', 'puffinhunting':'puffin_hunting'
   };
-  String(rawData || '').replace(/\r/g,'').split('\n').forEach((raw, index) => {
+  const findFamily = text => {
+    const n = normalize(text);
+    return aliases[n] || Object.keys(SS_HUNTING_FIELD_TESTS).find(key =>
+      normalize(key) === n || normalize(SS_HUNTING_FIELD_TESTS[key].label) === n
+    ) || null;
+  };
+  const findSpecialization = (family, text) => Object.keys(family.specializations)
+    .find(key => normalize(key) === normalize(text) ||
+      normalize(family.specializations[key].label) === normalize(text)) || null;
+  const findLevel = text => Object.keys(SS_HUNTING_LEVELS)
+    .find(key => normalize(key) === normalize(text) ||
+      normalize(SS_HUNTING_LEVELS[key].label) === normalize(text)) || null;
+  const startClass = (fk, lk, sk) => {
+    current = {familyKey:fk, levelKey:lk, specializationKey:sk, entries:[]};
+    groups.push(current);
+  };
+  String(rawData || '').replace(/\r/g,'').split('\n').forEach((raw,index) => {
     const line = cleanLine(raw);
     if (!line || /^\[hr\]$/i.test(line)) return;
-    const parsed = parseHeader(line);
-    if (parsed) {
-      current = {...parsed, entries:[]};
-      groups.push(current);
-    } else if (looksLikeAnimalEntry(line)) {
-      if (!current) invalid.push('Line ' + (index + 1) + ': entry before a recognized class heading');
-      else current.entries.push(line);
-    } else {
-      invalid.push('Line ' + (index + 1) + ': unrecognized heading or text: ' + line.slice(0,100));
+    const header = stripHeaderMarkup(line);
+    // Entry Builder format: FAMILY on its own line, then "Beginners Duck".
+    const newFamily = findFamily(header);
+    if (newFamily) { familyKey = newFamily; current = null; return; }
+    const compact = header.match(/^(Beginners?|Expert|Masters?)\s+(.+)$/i);
+    if (compact && familyKey) {
+      const lk = findLevel(compact[1]);
+      const sk = findSpecialization(SS_HUNTING_FIELD_TESTS[familyKey],compact[2]);
+      if (lk && sk) { startClass(familyKey,lk,sk); return; }
+      invalid.push('Line ' + (index+1) + ': unknown class ' + header +
+        ' under ' + SS_HUNTING_FIELD_TESTS[familyKey].label);
+      current = null;
+      return;
     }
+    // Also accept explicit "Beginners - Flushing - Pheasant" headings.
+    const parts = header.split(/\s+[-–—]\s+/).map(v => v.trim());
+    if (parts.length === 3) {
+      const levelPart = parts.find(p => findLevel(p));
+      const familyPart = parts.find(p => findFamily(p));
+      if (levelPart && familyPart) {
+        const fk = findFamily(familyPart);
+        const quarryPart = parts.find(p => p !== levelPart && p !== familyPart);
+        const sk = findSpecialization(SS_HUNTING_FIELD_TESTS[fk],quarryPart);
+        if (sk) { familyKey = fk; startClass(fk,findLevel(levelPart),sk); return; }
+      }
+    }
+    // Pack entries can contain several dogs separated by " - "; keep the
+    // complete line intact so the existing pack judge handles it.
+    if (looksLikeAnimalEntry(line)) {
+      if (!current) invalid.push('Line ' + (index+1) + ': entry without a valid class');
+      else current.entries.push(line);
+      return;
+    }
+    invalid.push('Line ' + (index+1) + ': unrecognized text ' + header.slice(0,100));
   });
-  if (invalid.length) throw new Error('Batch Field Trial input needs correction. ' +
-    invalid.slice(0,8).join(' | ') + (invalid.length > 8 ? ' (and more)' : ''));
-  if (!groups.length) throw new Error('No Field Trial class headings found. Use: Beginners - Flushing - Pheasant');
+  if (invalid.length) throw new Error('Batch Field Trial entries need correction: ' +
+    invalid.slice(0,8).join(' | ') + (invalid.length>8?' (and more)':''));
+  if (!groups.length) throw new Error('No Field Trial classes found. Use FAMILY then Beginners Duck.');
   if (groups.some(g => !g.entries.length)) throw new Error('One or more Field Trial classes have no entries.');
   return groups;
 }
