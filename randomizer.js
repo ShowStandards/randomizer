@@ -5525,10 +5525,17 @@ async function runHuntingClubBatch(rawData, showData) {
       addLine(lines, '');
       previousFamily = group.familyKey;
     }
+    const specialization = family.specializations[group.specializationKey];
+    const level = SS_HUNTING_LEVELS[group.levelKey];
     const result = await runHuntingClub(group.entries.join('\n'), showData, group);
-    // The family heading above groups all levels/quarry classes together.
-    // Keep each class's existing scores, qualification lines and records.
-    lines.push(...result.lines, '');
+    // Prominent per-class banner: every level + quarry gets its own section.
+    // Preserve all judged scores, qualification rules and database records.
+    addLine(lines, '----------------------------------------');
+    addLine(lines, bold(level.label.toUpperCase() + ' — ' + specialization.label.toUpperCase()));
+    addLine(lines, '----------------------------------------');
+    // The single-class judge already prints its own "Hunting Club Field Test"
+    // and level/family/quarry heading. Skip those two redundant lines in batch.
+    lines.push(...result.lines.slice(2), '');
     records.push(...result.records);
   }
   if (!records.length) throw new Error('No valid Field Trial results generated; check declined entries.');
