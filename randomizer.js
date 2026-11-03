@@ -2469,6 +2469,10 @@ function ensureHuntingControls() {
       </select>
       <small id="huntingLevelNote"></small>
     </div>
+    <div class="ss-field">
+      <label for="huntingBatchMode"><input type="checkbox" id="huntingBatchMode"> Batch Field Trials — multiple classes in one show</label>
+      <small>Paste headings such as <b>Beginners - Flushing - Pheasant</b>, then dogs underneath. Repeat for each class. The family, quarry and level dropdowns are ignored in Batch Mode.</small>
+    </div>
   `;
 
   $('herdingPanel').appendChild(wrapper);
@@ -5430,13 +5434,79 @@ async function huntingPriorQualifications(supabase, animalId, family, specializa
   return counts;
 }
 
-async function runHuntingClub(rawData, showData) {
+// Batch Field Trials: explicit headings avoid guessing which class an animal belongs to.
+// Both "Beginners - Flushing - Pheasant" and "Flushing - Pheasant - Beginners" work.
+// The same judge and upload path as single-class mode is reused for every class.
+function parseHuntingBatch(rawData) {
+  const groups = [];
+  let current = null;
+  const invalid = [];
+  const levels = Object.entries(SS_HUNTING_LEVELS);
+  const families = Object.entries(SS_HUNTING_FIELD_TESTS);
+  const normalize = value => cleanLine(value).toLowerCase()
+    .replace(/&amp;/g, '&').replace(/[^a-z0-9]+/g, '');
+  const matchLabel = (value, key, label) =>
+    normalize(value) === normalize(key) || normalize(value) === normalize(label);
+  const parseHeader = raw => {
+    const value = stripHeaderMarkup(raw).replace(/^field\s*(?:trial|test)\s*[:\-–—]\s*/i, '');
+    const parts = value.split(/\s+[-–—]\s+/).map(x => x.trim()).filter(Boolean);
+    if (parts.length !== 3) return null;
+    const levelPart = parts.find(p => levels.some(([key, l]) => matchLabel(p, key, l.label)));
+    if (!levelPart) return null;
+    const levelKey = levels.find(([key,l]) => matchLabel(levelPart,key,l.label))[0];
+    const others = parts.filter(p => p !== levelPart);
+    const familyItem = families.find(([key,f]) => others.some(p => matchLabel(p,key,f.label)));
+    if (!familyItem) return null;
+    const [familyKey, family] = familyItem;
+    const specializationPart = others.find(p => !matchLabel(p,familyKey,family.label));
+    const specializationItem = Object.entries(family.specializations)
+      .find(([key,sp]) => matchLabel(specializationPart,key,sp.label));
+    if (!specializationItem) return null;
+    return {levelKey, familyKey, specializationKey:specializationItem[0]};
+  };
+  String(rawData || '').replace(/\r/g,'').split('\n').forEach((raw, index) => {
+    const line = cleanLine(raw);
+    if (!line || /^\[hr\]$/i.test(line)) return;
+    const parsed = parseHeader(line);
+    if (parsed) {
+      current = {...parsed, entries:[]};
+      groups.push(current);
+    } else if (looksLikeAnimalEntry(line)) {
+      if (!current) invalid.push('Line ' + (index + 1) + ': entry before a recognized class heading');
+      else current.entries.push(line);
+    } else {
+      invalid.push('Line ' + (index + 1) + ': unrecognized heading or text: ' + line.slice(0,100));
+    }
+  });
+  if (invalid.length) throw new Error('Batch Field Trial input needs correction. ' +
+    invalid.slice(0,8).join(' | ') + (invalid.length > 8 ? ' (and more)' : ''));
+  if (!groups.length) throw new Error('No Field Trial class headings found. Use: Beginners - Flushing - Pheasant');
+  if (groups.some(g => !g.entries.length)) throw new Error('One or more Field Trial classes have no entries.');
+  return groups;
+}
+
+async function runHuntingClubBatch(rawData, showData) {
+  const groups = parseHuntingBatch(rawData);
+  const lines = [], records = [];
+  for (const group of groups) {
+    const family = SS_HUNTING_FIELD_TESTS[group.familyKey];
+    const specialization = family.specializations[group.specializationKey];
+    const level = SS_HUNTING_LEVELS[group.levelKey];
+    const result = await runHuntingClub(group.entries.join('\n'), showData, group);
+    lines.push(...result.lines, '');
+    records.push(...result.records);
+  }
+  if (!records.length) throw new Error('No valid Field Trial results generated; check declined entries.');
+  return {lines, records};
+}
+
+async function runHuntingClub(rawData, showData, classOverride = null) {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not ready.');
 
-  const familyKey = $('huntingFamily')?.value || 'flushing';
-  const specializationKey = $('huntingSpecialization')?.value || 'pheasant';
-  const levelKey = $('huntingLevel')?.value || 'beginners';
+  const familyKey = classOverride?.familyKey || $('huntingFamily')?.value || 'flushing';
+  const specializationKey = classOverride?.specializationKey || $('huntingSpecialization')?.value || 'pheasant';
+  const levelKey = classOverride?.levelKey || $('huntingLevel')?.value || 'beginners';
 
   const family = SS_HUNTING_FIELD_TESTS[familyKey];
   const specialization = family?.specializations?.[specializationKey];
@@ -6541,7 +6611,9 @@ async function randomizeShow() {
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'endurance_club') {
       result = await runEnduranceClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'hunting_club') {
-      result = await runHuntingClub(rawData, showData);
+      result = $('huntingBatchMode')?.checked
+        ? await runHuntingClubBatch(rawData, showData)
+        : await runHuntingClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'spaniel_club') {
       result = await runSpanielClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'feline_athletes_club') {
