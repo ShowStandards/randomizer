@@ -5415,22 +5415,36 @@ function huntingDqReason(familyKey, levelKey) {
 }
 
 async function huntingPriorQualifications(supabase, animalId, family, specialization) {
-  const { data, error } = await supabase
-    .from('show_records')
-    .select('hunting_family,hunting_specialization,hunting_level,passed,association_key')
-    .eq('animal_id', animalId)
-    .eq('association_key', 'hunting_club')
-    .eq('hunting_family', family)
-    .eq('hunting_specialization', specialization);
-
-  if (error) throw new Error('Could not check Hunting Club title eligibility: ' + error.message);
+  // Historical uploads stored family names with spaces (e.g. "puffin hunting"),
+  // while newer uploads use keys ("puffin_hunting"). Normalize both forms.
+  const normalizeHuntingKey = value => String(value || '').toLowerCase()
+    .replace(/&amp;/g, '&').replace(/[^a-z0-9]/g, '');
 
   const counts = { beginners:0, expert:0, masters:0 };
-  (data || []).forEach(record => {
-        if (record.passed === true && counts[record.hunting_level] !== undefined) {
-      counts[record.hunting_level]++;
-    }
-  });
+  const familyKey = normalizeHuntingKey(family);
+  const specializationKey = normalizeHuntingKey(specialization);
+  const pageSize = 1000;
+
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('show_records')
+      .select('hunting_family,hunting_specialization,hunting_level,passed')
+      .eq('animal_id', animalId)
+      .eq('association_key', 'hunting_club')
+      .range(offset, offset + pageSize - 1);
+
+    if (error) throw new Error('Could not check Hunting Club title eligibility: ' + error.message);
+
+    const rows = data || [];
+    rows.forEach(record => {
+      if (record.passed !== true ||
+          normalizeHuntingKey(record.hunting_family) !== familyKey ||
+          normalizeHuntingKey(record.hunting_specialization) !== specializationKey) return;
+      const level = normalizeHuntingKey(record.hunting_level);
+      if (counts[level] !== undefined) counts[level]++;
+    });
+    if (rows.length < pageSize) break;
+  }
   return counts;
 }
 
