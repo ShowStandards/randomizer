@@ -5512,11 +5512,18 @@ function parseHuntingBatch(rawData) {
 async function runHuntingClubBatch(rawData, showData) {
   const groups = parseHuntingBatch(rawData);
   const lines = [], records = [];
+  let previousFamily = null;
   for (const group of groups) {
     const family = SS_HUNTING_FIELD_TESTS[group.familyKey];
-    const specialization = family.specializations[group.specializationKey];
-    const level = SS_HUNTING_LEVELS[group.levelKey];
+    if (group.familyKey !== previousFamily) {
+      if (lines.length) addLine(lines, '');
+      addLine(lines, bold(family.label.toUpperCase()));
+      addLine(lines, '');
+      previousFamily = group.familyKey;
+    }
     const result = await runHuntingClub(group.entries.join('\n'), showData, group);
+    // The family heading above groups all levels/quarry classes together.
+    // Keep each class's existing scores, qualification lines and records.
     lines.push(...result.lines, '');
     records.push(...result.records);
   }
