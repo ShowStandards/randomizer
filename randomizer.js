@@ -5517,7 +5517,11 @@ async function runHuntingClubBatch(rawData, showData) {
     const family = SS_HUNTING_FIELD_TESTS[group.familyKey];
     if (group.familyKey !== previousFamily) {
       if (lines.length) addLine(lines, '');
-      addLine(lines, bold(family.label.toUpperCase()));
+      // Plain-text section banner remains visible in both the on-page preview
+      // (which escapes BBCode) and the copied JCINK results.
+      addLine(lines, '========================================');
+      addLine(lines, family.label.toUpperCase());
+      addLine(lines, '========================================');
       addLine(lines, '');
       previousFamily = group.familyKey;
     }
