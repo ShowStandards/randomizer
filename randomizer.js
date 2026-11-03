@@ -5539,7 +5539,7 @@ async function runHuntingClubBatch(rawData, showData) {
   // Share registry and title lookups across every class in this batch.
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not ready.');
-  const shared = { animalMap: await loadAnimalsMap(supabase), priorCache: new Map() };
+  const shared = { animalMap: await loadAnimalsMap(supabase) };
   let previousFamily = null;
   for (const group of groups) {
     const family = SS_HUNTING_FIELD_TESTS[group.familyKey];
@@ -5664,38 +5664,9 @@ async function runHuntingClub(rawData, showData, classOverride = null, shared = 
         }
       }
 
-      // Beginners have no prerequisite: avoid unnecessary database requests.
-      // Repeated animals across classes reuse the same lookup in batch mode.
-      let prior = { beginners: 0, expert: 0, masters: 0 };
-      if (levelKey !== 'beginners') {
-        const cacheKey = [animal.id, familyKey, specializationKey].join('|');
-        if (shared?.priorCache?.has(cacheKey)) {
-          prior = shared.priorCache.get(cacheKey);
-        } else {
-          prior = await huntingPriorQualifications(
-            supabase, animal.id, familyKey, specializationKey
-          );
-          shared?.priorCache?.set(cacheKey, prior);
-        }
-      }
-
-      if (levelKey === 'expert' && prior.beginners < SS_HUNTING_LEVELS.beginners.titleQs) {
-        declined.push({
-          entry: memberEntry,
-          reason: 'Requires the Beginners ' + family.label + ' — ' + specialization.label + ' title'
-        });
-        entryDeclined = true;
-        continue;
-      }
-
-      if (levelKey === 'masters' && prior.expert < SS_HUNTING_LEVELS.expert.titleQs) {
-        declined.push({
-          entry: memberEntry,
-          reason: 'Requires the Expert ' + family.label + ' — ' + specialization.label + ' title'
-        });
-        entryDeclined = true;
-        continue;
-      }
+      // Class eligibility is determined by the show organizer's entry list.
+      // Do not block Expert or Masters on prior uploaded qualifications: multi-day
+      // events may award a title before all show results have been uploaded.
 
       matchedMembers.push({ entry: memberEntry, animal });
     }
