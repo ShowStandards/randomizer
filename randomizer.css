@@ -30,3 +30,126 @@ body.ss-dark-mode .ss-setup-card,body.ss-dark-mode #championshipPanel{background
 body.ss-dark-mode .ss-field input,body.ss-dark-mode .ss-field select,body.ss-dark-mode .ss-field textarea,body.ss-dark-mode .ss-source-shows,body.ss-dark-mode .ss-results-content{background:#242b2b;color:#f2f2f2;border-color:#3b4d4d}
 body.ss-dark-mode .ss-button.secondary{background:#242b2b;color:#d9e5e4;border-color:#3b4d4d}
 @media(max-width:760px){.ss-engine-tabs,.ss-grid.two,.ss-series-grid{grid-template-columns:1fr}.ss-card-title{display:block}.ss-summary-pill{max-width:none;margin-top:8px;text-align:left}.ss-randomizer{padding:18px}}
+
+/* =========================================================
+   SHOW STANDARD 2027 — refined forum-matched presentation
+   Visual-only overrides; no form or randomizer behavior changed.
+   ========================================================= */
+.ss-randomizer{
+  max-width:1120px;
+  margin:18px auto 28px;
+  padding:clamp(18px,3vw,30px);
+  background:#fbfcfb;
+  border:1px solid #d5e3df;
+  border-radius:12px;
+  box-shadow:0 8px 26px rgba(28,67,62,.045);
+  color:#344a47;
+}
+.ss-randomizer-head{
+  padding:4px 0 20px;
+  margin-bottom:20px;
+  border-bottom:1px solid #d7e5e1;
+}
+.ss-randomizer h1{
+  font-family:'Cormorant Garamond','Uchen',Georgia,serif;
+  font-style:italic;
+  font-size:clamp(31px,4vw,43px);
+  font-weight:500;
+  letter-spacing:0;
+  text-transform:none;
+  line-height:1.15;
+  color:#2f6f6f;
+}
+.ss-randomizer h2,.ss-randomizer h3{
+  font-family:'Uchen',Georgia,serif;
+  font-weight:400;
+  letter-spacing:0;
+  text-transform:none;
+  line-height:1.3;
+}
+.ss-randomizer .ss-kicker,.ss-randomizer .ss-field label{
+  font-family:'Barlow SC',Arial,sans-serif;
+  letter-spacing:.12em;
+}
+.ss-randomizer .ss-engine-tabs{
+  gap:3px;
+  padding:5px;
+  border:1px solid #d7e5e1;
+  border-radius:9px;
+  background:#edf4f1;
+}
+.ss-randomizer .ss-engine-tab{
+  padding:11px 14px;
+  border-radius:6px;
+  transition:background .15s ease,color .15s ease;
+}
+.ss-randomizer .ss-engine-tab.active{
+  border-color:#c8dcd6;
+  box-shadow:none;
+  background:#fff;
+}
+.ss-randomizer .ss-setup-card,
+.ss-randomizer #championshipPanel{
+  padding:clamp(16px,2.4vw,23px);
+  background:#fff;
+  border:1px solid #d7e5e1;
+  border-radius:10px;
+  box-shadow:none;
+}
+.ss-randomizer .ss-card-title{border-bottom:1px solid #e1eae7}
+.ss-randomizer .ss-summary-pill{
+  background:#edf5f2;
+  border:1px solid #dce8e4;
+  font-weight:600;
+}
+.ss-randomizer .ss-field input,
+.ss-randomizer .ss-field select,
+.ss-randomizer .ss-field textarea{
+  border:1px solid #cbded8;
+  border-radius:7px;
+  box-shadow:none;
+}
+.ss-randomizer .ss-field input:focus,
+.ss-randomizer .ss-field select:focus,
+.ss-randomizer .ss-field textarea:focus{
+  outline:2px solid rgba(70,137,134,.28);
+  outline-offset:1px;
+}
+.ss-randomizer .ss-button{
+  border-radius:7px;
+  letter-spacing:.055em;
+  transition:background .15s ease;
+}
+.ss-randomizer .ss-button:not(:disabled):hover{background:#245b59}
+.ss-randomizer .ss-results,
+.ss-randomizer .ss-results-content,
+.ss-randomizer .ss-source-shows,
+.ss-randomizer .ss-preview-summary,
+.ss-randomizer .ss-specialty-note{border-radius:8px}
+.ss-randomizer .ss-results{background:#f5f9f7}
+body.ss-dark-mode .ss-randomizer{
+  background:#202a28;
+  color:#e3eeeb;
+  border-color:#405651;
+}
+body.ss-dark-mode .ss-randomizer h1,
+body.ss-dark-mode .ss-randomizer h2,
+body.ss-dark-mode .ss-randomizer h3,
+body.ss-dark-mode .ss-randomizer .ss-kicker,
+body.ss-dark-mode .ss-randomizer .ss-field label{color:#b6dcd3}
+body.ss-dark-mode .ss-randomizer .ss-engine-tabs,
+body.ss-dark-mode .ss-randomizer .ss-results{background:#1b2523;border-color:#405651}
+body.ss-dark-mode .ss-randomizer .ss-engine-tab{color:#c7d8d4}
+body.ss-dark-mode .ss-randomizer .ss-engine-tab.active,
+body.ss-dark-mode .ss-randomizer .ss-setup-card,
+body.ss-dark-mode .ss-randomizer #championshipPanel{background:#293633;color:#e3eeeb;border-color:#405651}
+body.ss-dark-mode .ss-randomizer .ss-summary-pill,
+body.ss-dark-mode .ss-randomizer .ss-preview-summary,
+body.ss-dark-mode .ss-randomizer .ss-specialty-note{background:#273b36;color:#c9e7df;border-color:#405651}
+body.ss-dark-mode .ss-randomizer .ss-card-title,
+body.ss-dark-mode .ss-randomizer .ss-randomizer-head{border-color:#405651}
+@media(max-width:760px){
+  .ss-randomizer{margin:10px auto 20px;padding:16px}
+  .ss-randomizer .ss-engine-tabs{grid-template-columns:1fr}
+  .ss-randomizer .ss-summary-pill{max-width:none}
+}
