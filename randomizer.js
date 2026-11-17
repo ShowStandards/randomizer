@@ -1240,7 +1240,15 @@ function conformationAward(recordList, showData, animal, placement, className) {
     class_name: className || 'Class 1',
     placement,
     animal_name: animal,
-    points: awardTable[placement] || SS_CONFIG.placementPoints[Number(placement)] || 0
+    points: (() => {
+      const base = awardTable[placement] || SS_CONFIG.placementPoints[Number(placement)] || 0;
+      const size = showData.__conformationClassSizes?.get(
+        String(animal).trim().toLowerCase() + "|" + String(className || "Class 1").trim().toLowerCase()
+      ) || 0;
+      // 11–20 entries = 2×, 21–30 = 3×, and so on.
+      const multiplier = size > 10 ? Math.ceil(size / 10) : 1;
+      return base * multiplier;
+    })()
   });
 }
 function pickFromCandidates(candidates) {
@@ -1289,6 +1297,21 @@ function judgeBreed(lines, records, showData, breed, options) {
   addLine(lines, bold(breed.name));
 
   sortConformationClasses(breed.classes);
+
+  // Majors are based on the number entered in the animal's own breed/class,
+  // not the total number of animals across breeds sharing a class label.
+  // Capture each class before any judging, so class placings and higher awards
+  // (Challenge, BOB, BIG, BIS) all use the same multiplier.
+  if (!showData.__conformationClassSizes) showData.__conformationClassSizes = new Map();
+  (breed.classes || []).forEach(cls => {
+    const count = (cls.entries || []).length;
+    (cls.entries || []).forEach(entry => {
+      showData.__conformationClassSizes.set(
+        String(entry).trim().toLowerCase() + "|" + String(cls.name).trim().toLowerCase(),
+        count
+      );
+    });
+  });
 
   const maleClasses = [];
   const femaleClasses = [];
