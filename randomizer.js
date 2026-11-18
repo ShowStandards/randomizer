@@ -6001,7 +6001,9 @@ function runIcelandicBreeding(rawData, showData) {
     ranked.forEach((horse, index) => {
       const place = index + 1;
       const certificate = horse.score >= 120;
-      const points = SS_CONFIG.placementPoints[place] || 0;
+      // IHASS breeding scores contribute only to IHASS title progression via score.
+      // Never award Show Standard placement/championship points for this event.
+      const points = 0;
 
       addLine(
         lines,
