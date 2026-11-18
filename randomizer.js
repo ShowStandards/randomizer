@@ -2493,7 +2493,7 @@ function ensureHuntingControls() {
       <small id="huntingLevelNote"></small>
     </div>
     <div class="ss-field">
-      <label for="huntingBatchMode"><input type="checkbox" id="huntingBatchMode"> Batch Field Trials — multiple classes in one show</label>
+      <label for="huntingBatchMode"><input type="checkbox" id="huntingBatchMode" checked> Batch Field Trials — multiple classes in one show</label>
       <small>Paste headings such as <b>Beginners - Flushing - Pheasant</b>, then dogs underneath. Repeat for each class. The family, quarry and level dropdowns are ignored in Batch Mode.</small>
     </div>
   `;
@@ -5484,6 +5484,27 @@ async function huntingPriorQualifications(supabase, animalId, family, specializa
 // Batch Field Trials: explicit headings avoid guessing which class an animal belongs to.
 // Both "Beginners - Flushing - Pheasant" and "Flushing - Pheasant - Beginners" work.
 // The same judge and upload path as single-class mode is reused for every class.
+// Detect Entry Builder-style Hunting Club entries automatically. A pasted
+// FAMILY heading followed by Beginners/Expert/Masters class headings must
+// never be judged as a single class just because Batch Mode was unchecked.
+function hasHuntingBatchHeadings(rawData) {
+  const normalize = value => cleanLine(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const familyNames = new Set([
+    ...Object.keys(SS_HUNTING_FIELD_TESTS).map(normalize),
+    ...Object.values(SS_HUNTING_FIELD_TESTS).map(f => normalize(f.label)),
+    'scentingtrailing', 'scenttrailing', 'catchdog', 'catchdogs',
+    'treeingbaying', 'packhunting', 'otterhunting', 'puffinhunting'
+  ]);
+  let hasFamily = false, hasClass = false;
+  String(rawData || '').split(/\r?\n/).forEach(raw => {
+    const header = stripHeaderMarkup(raw).replace(/^\*\*|\*\*$/g, '').trim();
+    if (familyNames.has(normalize(header))) hasFamily = true;
+    if (/^(Beginners?|Expert|Masters?)\s+\S+/i.test(header) ||
+        /^(Beginners?|Expert|Masters?)\s+[-–—]\s+\S+/i.test(header)) hasClass = true;
+  });
+  return hasFamily && hasClass;
+}
+
 function parseHuntingBatch(rawData) {
   const groups = [], invalid = [];
   let current = null, familyKey = null;
@@ -5514,7 +5535,7 @@ function parseHuntingBatch(rawData) {
   String(rawData || '').replace(/\r/g,'').split('\n').forEach((raw,index) => {
     const line = cleanLine(raw);
     if (!line || /^\[hr\]$/i.test(line)) return;
-    const header = stripHeaderMarkup(line);
+    const header = stripHeaderMarkup(line).replace(/^\*\*|\*\*$/g, '').trim();
     // Entry Builder format: FAMILY on its own line, then "Beginners Duck".
     const newFamily = findFamily(header);
     if (newFamily) { familyKey = newFamily; current = null; return; }
@@ -6686,7 +6707,7 @@ async function randomizeShow() {
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'endurance_club') {
       result = await runEnduranceClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'hunting_club') {
-      result = $('huntingBatchMode')?.checked
+      result = ($('huntingBatchMode')?.checked || hasHuntingBatchHeadings(rawData))
         ? await runHuntingClubBatch(rawData, showData)
         : await runHuntingClub(rawData, showData);
     } else if (activeRandomizerTab === 'specialty' && specialtySystemKey === 'spaniel_club') {
