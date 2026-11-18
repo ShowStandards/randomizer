@@ -2493,7 +2493,7 @@ function ensureHuntingControls() {
       <small id="huntingLevelNote"></small>
     </div>
     <div class="ss-field">
-      <label for="huntingBatchMode"><input type="checkbox" id="huntingBatchMode" checked> Batch Field Trials — multiple classes in one show</label>
+      <label for="huntingBatchMode"><input type="checkbox" id="huntingBatchMode"> Batch Field Trials — multiple classes in one show</label>
       <small>Paste headings such as <b>Beginners - Flushing - Pheasant</b>, then dogs underneath. Repeat for each class. The family, quarry and level dropdowns are ignored in Batch Mode.</small>
     </div>
   `;
@@ -5497,7 +5497,7 @@ function hasHuntingBatchHeadings(rawData) {
   ]);
   let hasFamily = false, hasClass = false;
   String(rawData || '').split(/\r?\n/).forEach(raw => {
-    const header = stripHeaderMarkup(raw).replace(/^\*\*|\*\*$/g, '').trim();
+    const header = stripHeaderMarkup(raw).replace(/^\*\*|\*\*$/g, '').replace(/\\$/, '').trim();
     if (familyNames.has(normalize(header))) hasFamily = true;
     if (/^(Beginners?|Expert|Masters?)\s+\S+/i.test(header) ||
         /^(Beginners?|Expert|Masters?)\s+[-–—]\s+\S+/i.test(header)) hasClass = true;
@@ -5533,9 +5533,9 @@ function parseHuntingBatch(rawData) {
     groups.push(current);
   };
   String(rawData || '').replace(/\r/g,'').split('\n').forEach((raw,index) => {
-    const line = cleanLine(raw);
+    const line = cleanLine(raw).replace(/\\$/, '').trim();
     if (!line || /^\[hr\]$/i.test(line)) return;
-    const header = stripHeaderMarkup(line).replace(/^\*\*|\*\*$/g, '').trim();
+    const header = stripHeaderMarkup(line).replace(/^\*\*|\*\*$/g, '').replace(/\\$/, '').trim();
     // Entry Builder format: FAMILY on its own line, then "Beginners Duck".
     const newFamily = findFamily(header);
     if (newFamily) { familyKey = newFamily; current = null; return; }
