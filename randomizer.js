@@ -2145,7 +2145,7 @@ const SS_HUNTING_FIELD_TESTS = {
       rabbit: { label:'Rabbit', code:'r' },
       hare: { label:'Hare', code:'h' },
       pheasant: { label:'Pheasant', code:'p' },
-      grouse: { label:'Grouse', code:'g' },
+      grouse: { label:'Grouse', code:'Gr' },
       quail: { label:'Quail', code:'q' },
       waterfowl: { label:'Waterfowl', code:'w' }
     },
