@@ -2140,7 +2140,7 @@ const SS_HUNTING_FIELD_TESTS = {
   },
   falconry: {
     label: 'Falconry',
-    code: 'Fa',
+    code: 'Fc',
     specializations: {
       rabbit: { label:'Rabbit', code:'r' },
       hare: { label:'Hare', code:'h' },
