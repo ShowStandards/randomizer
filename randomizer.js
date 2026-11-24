@@ -4770,7 +4770,12 @@ function runHerdingClub(rawData, showData) {
     return { lines, records };
   }
 
-  const classes = parseHerdingStakesClasses(rawData);
+  const divisionOrder = ['Puppy', 'Beginners', 'Advanced', 'Expert', 'Championship'];
+  const stockOrder = ['Ducks', 'Sheep', 'Cattle', 'Reindeer'];
+  const classes = parseHerdingStakesClasses(rawData).sort((a, b) =>
+    divisionOrder.indexOf(a.division) - divisionOrder.indexOf(b.division) ||
+    stockOrder.indexOf(a.stock) - stockOrder.indexOf(b.stock)
+  );
   if (!classes.length) {
     throw new Error(
       'No valid Stakes classes found. Use one of: Puppy, Beginners, Advanced, Expert, or Championship + Sheep/Cattle/Ducks/Reindeer. Example: Beginners Sheep'
