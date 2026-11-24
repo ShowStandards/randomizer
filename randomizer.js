@@ -5819,8 +5819,8 @@ function normalizeFacLevel(value) {
 const SS_FAC_ENTRY_CODES = {
   cab:'Feline Agility', caai:'Feline Agility', caaii:'Feline Agility',
   cach:'Feline Agility', cagch:'Feline Agility',
-  fsp:'Timed Sprint', hjn:'High Jump', hji:'High Jump', hja:'High Jump',
-  hjx:'High Jump', hjch:'High Jump', flj:'Long Jump',
+  fsp:'Timed Sprint', afsp:'Timed Sprint', hjn:'High Jump', hji:'High Jump', hja:'High Jump',
+  hjx:'High Jump', hje:'High Jump', hjch:'High Jump', flj:'Long Jump', aflj:'Long Jump',
   feq:'Equilibrium', afeq:'Equilibrium', xfeq:'Equilibrium', fcl:'Tower Climb', fea:'Escape Cat'
 };
 const SS_FAC_TITLE_CODES = {
